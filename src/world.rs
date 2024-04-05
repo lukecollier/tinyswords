@@ -128,6 +128,7 @@ impl WorldAssets {
             Self::SAND_CENTER_LEFT => BITMASK_BOT_TOP_RIGHT,
             Self::SAND_CENTER_RIGHT => BITMASK_BOT_TOP_LEFT,
             Self::SAND_TOP_CENTRE => BITMASK_BOT_LEFT_RIGHT,
+            Self::SAND_BOT_CENTRE => BITMASK_TOP_LEFT_RIGHT,
             Self::SAND_TOP_LEFT => BITMASK_BOT_RIGHT,
             Self::SAND_TOP_RIGHT => BITMASK_BOT_LEFT,
             Self::SAND_BOT_LEFT => BITMASK_TOP_RIGHT,
@@ -220,7 +221,6 @@ where
             bitmask += 2_u32.pow(3);
         }
     }
-    dbg!(bitmask);
     bitmask as u8
 }
 
@@ -266,7 +266,6 @@ fn update_tile_system(
                                 let bitmask_right = assets
                                     .bitmask_from_sand_index(texture_atlas.index)
                                     + BITMASK_LEFT;
-                                dbg!(bitmask_right);
                                 texture_atlas.index = assets.sand_index_from_bitmask(bitmask_right);
                             }
                             // left
@@ -274,7 +273,6 @@ fn update_tile_system(
                                 let bitmask_left = assets
                                     .bitmask_from_sand_index(texture_atlas.index)
                                     + BITMASK_RIGHT;
-                                dbg!(bitmask_left);
                                 texture_atlas.index = assets.sand_index_from_bitmask(bitmask_left);
                             }
                             // down
@@ -282,7 +280,6 @@ fn update_tile_system(
                                 let bitmask_down = assets
                                     .bitmask_from_sand_index(texture_atlas.index)
                                     + BITMASK_TOP;
-                                dbg!(bitmask_down);
                                 texture_atlas.index = assets.sand_index_from_bitmask(bitmask_down);
                             }
                             // up
@@ -290,7 +287,6 @@ fn update_tile_system(
                                 let bitmask_up = assets
                                     .bitmask_from_sand_index(texture_atlas.index)
                                     + BITMASK_BOT;
-                                dbg!(bitmask_up);
                                 texture_atlas.index = assets.sand_index_from_bitmask(bitmask_up);
                             }
                             if tile.pos == tile_pos {
