@@ -34,6 +34,7 @@ fn main() {
                     default_sampler: ImageSamplerDescriptor::nearest(),
                 }),
         )
+        .insert_resource(Msaa::Off) // stop's texture bleeding
         .init_state::<GameState>()
         .add_loading_state(
             LoadingState::new(GameState::AssetLoading).continue_to_state(GameState::InGame),

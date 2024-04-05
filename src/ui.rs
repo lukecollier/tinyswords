@@ -5,7 +5,7 @@ use crate::GameState;
 
 #[derive(AssetCollection, Resource)]
 struct UiAssets {
-    #[asset(path = "ui/pointers/cursor.png")]
+    #[asset(path = "ui/pointers/cursor_no_space.png")]
     cursor: Handle<Image>,
 }
 
@@ -33,30 +33,27 @@ impl<S: States> UiPlugin<S> {
 }
 
 fn setup_ui(mut cmds: Commands, assets: Res<UiAssets>) {
-    let node = NodeBundle {
+    let ui_image = ImageBundle {
         style: Style {
-            width: Val::Px(64.0),
-            height: Val::Px(64.0),
+            width: Val::Px(22.0),
+            height: Val::Px(30.0),
             position_type: PositionType::Absolute,
-            top: Val::Px(128.),
-            left: Val::Px(128.),
             ..default()
         },
-        transform: Transform::from_xyz(500., 200., 1.),
-        // a `NodeBundle` is transparent by default, so to see the image we have to its color to `WHITE`
         background_color: Color::WHITE.into(),
+        image: UiImage::new(assets.cursor.clone()),
         ..default()
     };
 
-    cmds.spawn((node, UiImage::new(assets.cursor.clone()), FollowCursor));
+    cmds.spawn((ui_image, FollowCursor));
 }
 
 fn update_ui(mut follow_q: Query<&mut Style, With<FollowCursor>>, window_q: Query<&Window>) {
     let window = window_q.single();
     if let Some(cursor_pos) = window.cursor_position() {
         for mut follower in &mut follow_q {
-            follower.left = Val::Px(cursor_pos.x - 20.);
-            follower.top = Val::Px(cursor_pos.y - 20.);
+            follower.left = Val::Px(cursor_pos.x);
+            follower.top = Val::Px(cursor_pos.y);
         }
     }
 }
