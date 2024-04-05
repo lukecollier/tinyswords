@@ -239,7 +239,6 @@ fn update_tile_system(
                 if let Some(world_cursor_pos) =
                     camera.viewport_to_world_2d(camera_transform, cursor_pos)
                 {
-                    // let tile_rect = Rect::new(0.0, 0.0, TILE_SIZE, TILE_SIZE);
                     let tile_pos = (world_cursor_pos / TILE_VEC).floor().as_u16vec2();
                     gizmos.rect_2d(
                         tile_pos.as_vec2() * TILE_VEC + TILE_VEC / 2.0,
