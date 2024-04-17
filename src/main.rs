@@ -20,7 +20,7 @@ fn main() {
                             ..default()
                         },
                         resolution: (1270., 720.).into(),
-                        present_mode: bevy::window::PresentMode::AutoNoVsync,
+                        present_mode: bevy::window::PresentMode::AutoVsync,
                         window_theme: None,
                         enabled_buttons: bevy::window::EnabledButtons {
                             maximize: true,

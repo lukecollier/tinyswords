@@ -4,9 +4,16 @@ use bevy_asset_loader::prelude::*;
 use crate::GameState;
 
 #[derive(AssetCollection, Resource)]
-struct UiAssets {
+pub struct UiAssets {
     #[asset(path = "ui/pointers/cursor_no_space.png")]
     cursor: Handle<Image>,
+    #[asset(path = "ui/pointers/select.png")]
+    pub select: Handle<Image>,
+
+    #[asset(path = "ui/banners/banner_vertical.png")]
+    banner_texture: Handle<Image>,
+    #[asset(texture_atlas_layout(tile_size_x = 64., tile_size_y = 64., columns = 3, rows = 3))]
+    banner_layout: Handle<TextureAtlasLayout>,
 }
 
 #[derive(Component)]
@@ -33,19 +40,19 @@ impl<S: States> UiPlugin<S> {
 }
 
 fn setup_ui(mut cmds: Commands, assets: Res<UiAssets>) {
-    let ui_image = ImageBundle {
+    let ui_cursor = ImageBundle {
         style: Style {
             width: Val::Px(22.0),
             height: Val::Px(30.0),
             position_type: PositionType::Absolute,
             ..default()
         },
+        z_index: ZIndex::Global(100),
         background_color: Color::WHITE.into(),
         image: UiImage::new(assets.cursor.clone()),
         ..default()
     };
-
-    cmds.spawn((ui_image, FollowCursor));
+    cmds.spawn((ui_cursor, FollowCursor));
 }
 
 fn update_ui(mut follow_q: Query<&mut Style, With<FollowCursor>>, window_q: Query<&Window>) {
