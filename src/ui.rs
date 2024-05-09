@@ -47,7 +47,7 @@ fn setup_ui(mut cmds: Commands, assets: Res<UiAssets>) {
             position_type: PositionType::Absolute,
             ..default()
         },
-        z_index: ZIndex::Global(100),
+        z_index: ZIndex::Global(i32::MAX),
         background_color: Color::WHITE.into(),
         image: UiImage::new(assets.cursor.clone()),
         ..default()
