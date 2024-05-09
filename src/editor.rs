@@ -17,12 +17,20 @@ pub struct EditorAssets {
     #[asset(path = "editor/sand_button.png")]
     sand: Handle<Image>,
 }
+
+#[derive(Eq, PartialEq)]
+enum Placing {
+    Sand,
+    Grass,
+    None,
+}
+
 #[derive(Resource)]
 struct EditorOptions {
-    show_tiles: bool,
+    show_terrain: bool,
     show_characters: bool,
     increase_elevation: bool,
-    painting: Option<String>,
+    painting: Placing,
 }
 
 pub struct EditorPlugin<S: States> {
@@ -32,10 +40,10 @@ pub struct EditorPlugin<S: States> {
 impl Default for EditorOptions {
     fn default() -> Self {
         Self {
-            show_tiles: false,
+            show_terrain: false,
             show_characters: false,
             increase_elevation: false,
-            painting: None,
+            painting: Placing::None,
         }
     }
 }
@@ -44,14 +52,10 @@ fn update_place_land(
     window_q: Query<&Window>,
     mut camera_q: Query<(&Camera, &GlobalTransform, &mut MainCamera)>,
     mut contexts: EguiContexts,
-    // todo: The problem is we need data out of the world map, this feel's leeky somehow
-    // I'm more ok with it as components should probably all be global
-    // keeping the integration points in the editor.rs and game.rs feel's like a good compramise.
-    // i.e these are the integration points for the various systems
     tile_q: Query<(&mut Tile, &mut Elevation)>,
     mouse_button: Res<ButtonInput<MouseButton>>,
-    // todo: Validate using events as a cross module communication tool
     mut sender: EventWriter<PlaceLandTile>,
+    mut options: ResMut<EditorOptions>,
     mut gizmos: Gizmos,
 ) {
     if let Ok(window) = window_q.get_single() {
@@ -96,11 +100,17 @@ fn update_place_land(
                                     && p_x < WORLD_SIZE.x as i32
                                     && p_y < WORLD_SIZE.y as i32
                                 {
-                                    sender.send(PlaceLandTile::sand(
-                                        p_x as u16,
-                                        p_y as u16,
-                                        selected_elevation,
-                                    ));
+                                    match options.painting {
+                                        Placing::Sand => {
+                                            sender.send(PlaceLandTile::sand(
+                                                p_x as u16,
+                                                p_y as u16,
+                                                selected_elevation,
+                                            ));
+                                        }
+                                        Placing::Grass => {}
+                                        Placing::None => {}
+                                    }
                                 }
                             }
                         }
@@ -150,7 +160,7 @@ fn update_editor_menu(
                         Align::Center,
                     );
                 if ui.button(layout_job).clicked() || keyboard_input.just_pressed(KeyCode::KeyT) {
-                    options.show_tiles = !options.show_tiles;
+                    options.show_terrain = !options.show_terrain;
                 }
 
                 let mut layout_job_play = LayoutJob::default();
@@ -223,53 +233,61 @@ fn update_editor_ui(
 ) {
     use egui::*;
 
-    if options.show_tiles {
-        egui::Window::new("Terrain Editor")
+    if options.show_characters {
+        egui::Window::new("Characters")
             .resizable(false)
             .movable(true)
             .collapsible(false)
             .title_bar(false)
-            .show(contexts.ctx_mut(), |ui| {});
+            .show(contexts.ctx_mut(), |ui| {
+                ui.label("Characters");
+                egui::Grid::new("character_editor")
+                    .striped(true)
+                    .show(ui, |ui| {});
+            });
     }
 
-    if options.show_tiles {
+    if options.show_terrain {
         let sand_texture = contexts.add_image(assets.sand.clone_weak());
         let grass_texture = contexts.add_image(assets.grass.clone_weak());
-        egui::Window::new("Terrain Editor")
+        egui::Window::new("Terrain")
             .resizable(false)
             .movable(true)
             .collapsible(false)
             .title_bar(false)
             .show(contexts.ctx_mut(), |ui| {
                 ui.label("Terrain");
-                egui::Grid::new("tile_editor").striped(true).show(ui, |ui| {
-                    let sand_image = egui::load::SizedTexture::new(sand_texture, [32.0, 32.0]);
-                    if ImageButton::new(sand_image)
-                        .selected(options.painting.as_deref() == Some("sand"))
-                        .ui(ui)
-                        .on_hover_text("sand")
-                        .clicked()
-                    {
-                        if options.painting.as_deref() == Some("sand") {
-                            options.painting = None;
-                        } else {
-                            options.painting = Some("sand".to_string());
-                        }
-                    };
-                    let grass_image = egui::load::SizedTexture::new(grass_texture, [32.0, 32.0]);
-                    if ImageButton::new(grass_image)
-                        .selected(options.painting.as_deref() == Some("grass"))
-                        .ui(ui)
-                        .on_hover_text("grass")
-                        .clicked()
-                    {
-                        if options.painting.as_deref() == Some("grass") {
-                            options.painting = None;
-                        } else {
-                            options.painting = Some("grass".to_string());
-                        }
-                    };
-                });
+                egui::Grid::new("terrain_editor")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        let sand_image = egui::load::SizedTexture::new(sand_texture, [32.0, 32.0]);
+                        if ImageButton::new(sand_image)
+                            .selected(options.painting == Placing::Sand)
+                            .ui(ui)
+                            .on_hover_text("sand")
+                            .clicked()
+                        {
+                            if options.painting == Placing::Sand {
+                                options.painting = Placing::None;
+                            } else {
+                                options.painting = Placing::Sand;
+                            }
+                        };
+                        let grass_image =
+                            egui::load::SizedTexture::new(grass_texture, [32.0, 32.0]);
+                        if ImageButton::new(grass_image)
+                            .selected(options.painting == Placing::Grass)
+                            .ui(ui)
+                            .on_hover_text("grass")
+                            .clicked()
+                        {
+                            if options.painting == Placing::Grass {
+                                options.painting = Placing::None;
+                            } else {
+                                options.painting = Placing::Grass;
+                            }
+                        };
+                    });
                 ui.separator();
                 ui.checkbox(&mut options.increase_elevation, "Increase Elevation");
             });

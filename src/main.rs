@@ -16,6 +16,9 @@ fn main() {
     App::new()
         .add_plugins(
             DefaultPlugins
+                // todo: https://github.com/rust-windowing/winit/blob/ab33fb8eda45f9a23587465d787a70a309c67ec4/src/changelog/v0.30.md?plain=1#L17
+                // the above allows a custom cursor to be set, currently bevy isn't using stable 0.29
+                // awaiting https://github.com/bevyengine/bevy/pull/13254
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: "Tiny Swords".into(),
