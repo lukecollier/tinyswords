@@ -5,14 +5,17 @@ use bevy_asset_loader::prelude::*;
 use bevy_prng::WyRand;
 use bevy_rand::prelude::EntropyPlugin;
 use tinyswords::camera::CameraPlugin;
+use tinyswords::characters::CharacterPlugin;
 use tinyswords::editor::EditorPlugin;
+use tinyswords::game::GamePlugin;
 use tinyswords::nav::NavPlugin;
-use tinyswords::ui::UiPlugin;
-use tinyswords::unit::UnitPlugin;
 use tinyswords::world::WorldPlugin;
 use tinyswords::GameState;
 
 fn main() {
+    let loading_state = GameState::AssetLoading;
+    let first_state = GameState::InEditor;
+    let other_state = GameState::InGame;
     App::new()
         .add_plugins(
             DefaultPlugins
@@ -45,14 +48,38 @@ fn main() {
         .insert_resource(Msaa::Off) // stop's texture bleeding
         .init_state::<GameState>()
         .add_loading_state(
-            LoadingState::new(GameState::AssetLoading).continue_to_state(GameState::InGame),
+            // set our initial state after assets have loaded
+            LoadingState::new(GameState::AssetLoading).continue_to_state(first_state.clone()),
         )
         .add_plugins(EntropyPlugin::<WyRand>::default())
-        .add_plugins(EditorPlugin::run_on_state(GameState::InGame))
-        .add_plugins(WorldPlugin::run_on_state(GameState::InGame))
-        .add_plugins(NavPlugin::run_on_state(GameState::InGame))
-        .add_plugins(CameraPlugin::run_on_state(GameState::InGame))
-        // .add_plugins(UiPlugin::run_on_state(GameState::InGame))
-        .add_plugins(UnitPlugin::run_on_state(GameState::InGame))
+        // todo: We need some systems to only load in game and some systems
+        .add_plugins(EditorPlugin::run_on_state(
+            GameState::InEditor,
+            GameState::AssetLoading,
+        ))
+        .add_plugins(GamePlugin::run_on_state(
+            GameState::InGame,
+            loading_state.clone(),
+        ))
+        .add_plugins(WorldPlugin::run_on_state_or(
+            first_state.clone(),
+            other_state.clone(),
+            loading_state.clone(),
+        ))
+        .add_plugins(CharacterPlugin::run_on_state_or(
+            first_state.clone(),
+            other_state.clone(),
+            loading_state.clone(),
+        ))
+        .add_plugins(NavPlugin::run_on_state_or(
+            first_state.clone(),
+            other_state.clone(),
+            loading_state.clone(),
+        ))
+        .add_plugins(CameraPlugin::run_on_state_or(
+            first_state.clone(),
+            other_state.clone(),
+            loading_state.clone(),
+        ))
         .run();
 }

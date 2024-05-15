@@ -1,5 +1,5 @@
 use bevy::{
-    math::{I16Vec2, I64Vec2},
+    math::I64Vec2,
     prelude::*,
     utils::{
         hashbrown::HashSet,
@@ -7,49 +7,126 @@ use bevy::{
     },
 };
 
-use crate::{
-    camera::MainCamera,
-    world::{TILE_SIZE, WORLD_SIZE},
-};
+use crate::world::{map_bounds, TILE_SIZE};
 
-pub struct NavPlugin<S: States> {
-    state: S,
+const COARSE_RESOLUTION: i64 = 32_i64;
+
+#[derive(Resource, Default)]
+pub struct Navigation {
+    allowed: Vec<Rect>,
+    disallowed: Vec<Rect>,
+    // todo: Instead we update the nav graph with where has been allowed or disallowed
+    nav_graph: UnGraph<I64Vec2, f32>,
 }
 
-#[derive(Component)]
-struct Navigator {
-    navigate_to: Entity,
-}
+impl Navigation {
+    pub fn is_walkable(&self, xy: Vec2) -> bool {
+        self.nav_graph.node_indices().any(|node| {
+            let point = self.nav_graph[node];
+            let rect = Rect::from_corners(
+                (point - COARSE_RESOLUTION).as_vec2(),
+                (point + COARSE_RESOLUTION).as_vec2(),
+            );
 
-impl Navigator {
-    pub fn navigate_to(navigate_to: Entity) -> Navigator {
-        Navigator { navigate_to }
+            rect.contains(xy)
+        })
+    }
+
+    // todo(improvement): We can actually increase the resolution along the found path
+    pub fn path_between_2d(&self, start: Vec2, end: Vec2) -> Vec<Vec2> {
+        // this would be quite slow, but _probably_ faster then calculating it ad-hoc... probably?
+        let graph = &self.nav_graph;
+        // todo: this should ideally be the closest in the direction of travel
+        let mut closest_to_start = I64Vec2::ZERO;
+        let mut closest_to_end = I64Vec2::ZERO;
+        let mut finish_node_opt: Option<NodeIndex> = None;
+        let mut start_node_opt: Option<NodeIndex> = None;
+        for node_id in graph.node_indices() {
+            let point = graph[node_id];
+            if start.distance(point.as_vec2()) < start.distance(closest_to_start.as_vec2()) {
+                closest_to_start = point;
+                start_node_opt = Some(node_id);
+            }
+            if end.distance(point.as_vec2()) < end.distance(closest_to_end.as_vec2()) {
+                closest_to_end = point;
+                finish_node_opt = Some(node_id);
+            }
+        }
+        let Some(end_node) = finish_node_opt else {
+            return vec![];
+        };
+        let Some(start_node) = start_node_opt else {
+            return vec![];
+        };
+        // todo(improvement): After we return the A* path, we then make a higher resolution node
+        // graph and repeat the above process
+        if let Some((_, astar_path)) = astar(
+            &graph,
+            start_node,
+            |finish| finish == end_node,
+            |e| *e.weight(),
+            |_| 0.0,
+        ) {
+            return astar_path
+                .iter()
+                .map(|node| graph[*node].as_vec2())
+                .collect();
+        } else {
+            vec![]
+        }
+    }
+
+    pub fn debug(&self, mut gizmos: Gizmos) {
+        for node_id in self.nav_graph.node_indices() {
+            let pos = self.nav_graph[node_id];
+            gizmos.circle_2d(pos.as_vec2(), 2., Color::WHITE);
+        }
+        for a in self.nav_graph.node_indices() {
+            for b in self.nav_graph.node_indices() {
+                if self.nav_graph.find_edge(a, b).is_some() {
+                    let a_pos = self.nav_graph[a];
+                    let b_pos = self.nav_graph[b];
+                    gizmos.line_2d(a_pos.as_vec2(), b_pos.as_vec2(), Color::WHITE);
+                }
+            }
+        }
     }
 }
 
-// todo: We can make it even easier, by taking the corners of all blockd areas and connecting them
-// when no connecting intersection is found
-// can also aggregate rects that are connected to each other
-//
-fn nav_graph_2d(blocked: Vec<Rect>, bounds: Rect) -> UnGraph<I16Vec2, f32> {
-    // todo: Should be as big as the entity that's moving
-    let resolution = 32 as i64;
-    let nodes = ((bounds.max.x - bounds.min.x) / resolution as f32) as usize
-        * ((bounds.max.y - bounds.min.y) / resolution as f32) as usize;
-    let mut graph: UnGraph<I16Vec2, f32> = Graph::with_capacity(nodes + 2, nodes + 2);
-
-    for x in ((bounds.min.x as i16)..(bounds.max.x as i16)).step_by(resolution as usize) {
-        for y in ((bounds.min.y as i16)..(bounds.max.y as i16)).step_by(resolution as usize) {
-            let point = I16Vec2::new(x, y);
-            let mut found = false;
-            for block in &blocked {
-                if block.contains(point.as_vec2()) {
-                    found = true;
-                    break;
+//todo(improvement): We should check when allowed nav points have blockers in their tile.
+//If they don't they won't need the finer resolution.
+//furthermore if theres no blockers between two paths we can also merge them into a single point in
+//the path
+pub fn nav_graph_from_path(
+    allowed: &Vec<Rect>,
+    blocked: &Vec<Rect>,
+    coarse_path: Vec<I64Vec2>,
+    resolution: usize,
+) -> UnGraph<I64Vec2, f32> {
+    let fine_size = TILE_SIZE as i64;
+    let half_size = TILE_SIZE as i64 / 2;
+    let nodes_number =
+        (coarse_path.len() as f32 * (fine_size as f32 / resolution as f32)).ceil() as usize;
+    let mut graph: UnGraph<I64Vec2, f32> = Graph::with_capacity(nodes_number, nodes_number);
+    for waypoint in coarse_path {
+        for x in (-half_size..=half_size).step_by(resolution as usize) {
+            for y in (-half_size..=half_size).step_by(resolution as usize) {
+                let point = waypoint + I64Vec2::new(x, y);
+                let mut found = true;
+                for allow in allowed {
+                    if allow.contains(point.as_vec2()) {
+                        found = false;
+                    }
                 }
-            }
-            if !found {
-                graph.add_node(point);
+                for block in blocked {
+                    if block.contains(point.as_vec2()) {
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    graph.add_node(point);
+                }
             }
         }
     }
@@ -61,55 +138,47 @@ fn nav_graph_2d(blocked: Vec<Rect>, bounds: Rect) -> UnGraph<I16Vec2, f32> {
         })
         .collect();
 
-    // connecting the nodes is definitely fooked
     for (x, y, node) in points.iter() {
         for (ox, oy, onode) in points.iter() {
-            if x == ox && y == oy {
+            if x == ox && y == oy || graph.contains_edge(*node, *onode) {
                 continue;
             }
-            if (x - ox).abs() <= resolution && (y - oy).abs() <= resolution {
+            if (x - ox).abs() <= resolution as i64 * 2 && (y - oy).abs() <= resolution as i64 * 2 {
                 if x == ox || y == oy {
                     graph.add_edge(*node, *onode, 1.);
                     continue;
                 }
-                // if we're a diagonal should be weight 2 or something
-                graph.add_edge(*node, *onode, (2.0 as f32).sqrt());
+                graph.add_edge(*node, *onode, 1.41421356237);
             }
         }
     }
     graph
 }
 
-// 1. Fill 2d points from the start to the end, we can check the X and Y connecting points
-// if they're blocked we stop moving in that direction
-// 2. Cull 2d points inside a blocked are
-// 3. Remove points that are not connected to the initial point
-// 4. If there is no path, return an empty vector
-// 5. Perform a pathfinding algorithm to find the shortest path between start and end
-pub fn path_between_2d(blocked: Vec<Rect>, bounds: Rect, start: Vec2, end: Vec2) -> Vec<Vec2> {
+pub fn nav_graph_from(
+    allowed: &Vec<Rect>,
+    blocked: &Vec<Rect>,
+    bounds: &Rect,
+) -> UnGraph<I64Vec2, f32> {
+    fn exclusive_contains(rect: &Rect, point: &Vec2) -> bool {
+        (point.cmpgt(rect.min) & point.cmplt(rect.max)).all()
+    }
     // todo: Should be as big as the entity that's moving
-    let resolution = 32 as i64;
-    let nodes = ((bounds.max.x - bounds.min.x) / resolution as f32) as usize
-        * ((bounds.max.y - bounds.min.y) / resolution as f32) as usize;
+    let nodes = ((bounds.max.x - bounds.min.x) / COARSE_RESOLUTION as f32) as usize
+        * ((bounds.max.y - bounds.min.y) / COARSE_RESOLUTION as f32) as usize;
     let mut graph: UnGraph<I64Vec2, f32> = Graph::with_capacity(nodes + 2, nodes + 2);
-    let begin_at = graph.add_node(start.as_i64vec2());
-    let fin = graph.add_node(end.as_i64vec2());
-
-    let mut closest_to_start = I64Vec2::ZERO;
-    let mut closest_to_end = I64Vec2::ZERO;
-
-    for x in ((bounds.min.x as i64)..(bounds.max.x as i64)).step_by(resolution as usize) {
-        for y in ((bounds.min.y as i64)..(bounds.max.y as i64)).step_by(resolution as usize) {
+    for x in ((bounds.min.x as i64)..(bounds.max.x as i64)).step_by(COARSE_RESOLUTION as usize) {
+        for y in ((bounds.min.y as i64)..(bounds.max.y as i64)).step_by(COARSE_RESOLUTION as usize)
+        {
             let point = I64Vec2::new(x, y);
-            if start.distance(point.as_vec2()) < start.distance(closest_to_start.as_vec2()) {
-                closest_to_start = point;
+            let mut found = true;
+            for allow in allowed {
+                if exclusive_contains(allow, &point.as_vec2()) {
+                    found = false;
+                }
             }
-            if end.distance(point.as_vec2()) < end.distance(closest_to_end.as_vec2()) {
-                closest_to_end = point;
-            }
-            let mut found = false;
-            for block in &blocked {
-                if block.contains(point.as_vec2()) {
+            for block in blocked {
+                if exclusive_contains(block, &point.as_vec2()) {
                     found = true;
                     break;
                 }
@@ -127,34 +196,21 @@ pub fn path_between_2d(blocked: Vec<Rect>, bounds: Rect, start: Vec2, end: Vec2)
         })
         .collect();
 
-    // connecting the nodes is definitely fooked
     for (x, y, node) in points.iter() {
         for (ox, oy, onode) in points.iter() {
-            if x == ox && y == oy {
+            if x == ox && y == oy || graph.contains_edge(*node, *onode) {
                 continue;
             }
-            if (x - ox).abs() <= resolution && (y - oy).abs() <= resolution {
+            if (x - ox).abs() <= COARSE_RESOLUTION * 2 && (y - oy).abs() <= COARSE_RESOLUTION * 2 {
                 if x == ox || y == oy {
                     graph.add_edge(*node, *onode, 1.);
                     continue;
                 }
-                // if we're a diagonal should be weight 2 or something
-                graph.add_edge(*node, *onode, (2.0 as f32).sqrt());
+                graph.add_edge(*node, *onode, 1.41421356237);
             }
         }
     }
-
-    if let Some((_, path)) = astar(
-        &graph,
-        begin_at,
-        |finish| finish == fin,
-        |e| *e.weight(),
-        |_| 0.0,
-    ) {
-        path.iter().map(|node| graph[*node].as_vec2()).collect()
-    } else {
-        vec![]
-    }
+    graph
 }
 
 // todo: For a better solution, use a nav mesh, find the points, then offset the points by the
@@ -162,24 +218,24 @@ pub fn path_between_2d(blocked: Vec<Rect>, bounds: Rect, start: Vec2, end: Vec2)
 
 // need's a GlobalTransform, blocks navigation through this entity
 #[derive(Component)]
-struct NavSquare {
-    size: Vec2,
-    walkable: bool,
+pub struct NavSquare {
+    pub size: Vec2,
+    pub walkable: bool,
 }
 
 #[derive(Bundle)]
-struct NavBundle {
+pub struct NavBundle {
     transform: TransformBundle,
     blocker: NavSquare,
 }
 
 impl NavBundle {
     pub fn blocked(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self::from_xy(Vec2::new(x, y), Vec2::new(width, height), true)
+        Self::from_xy(Vec2::new(x, y), Vec2::new(width, height), false)
     }
 
     pub fn allowed(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self::from_xy(Vec2::new(x, y), Vec2::new(width, height), false)
+        Self::from_xy(Vec2::new(x, y), Vec2::new(width, height), true)
     }
     pub fn from_xy(xy: Vec2, size: Vec2, walkable: bool) -> Self {
         Self {
@@ -189,110 +245,78 @@ impl NavBundle {
     }
 }
 
-fn setup_nav(
-    mut cmds: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+// todo: Cache the whole nav path in a resource
+// then have an update for when new blockers are added
+fn setup_nav(mut pathing: ResMut<Navigation>) {}
+
+// todo(improvement): Building the graph everytime is wasteful, also this method of NavSquares
+// doesn't seem useful. We could instead add the nodes at discrete points and then connect them
+fn update_nav_graph_changed(
+    mut navigation: ResMut<Navigation>,
+    changed_nav_q: Query<
+        (&GlobalTransform, &NavSquare),
+        (
+            Or<(Changed<NavSquare>, Changed<GlobalTransform>)>,
+            With<NavSquare>,
+        ),
+    >,
 ) {
-}
-
-fn update_nav(navigator_q: Query<(Entity, &Navigator)>, pos_q: Query<&GlobalTransform>) {}
-
-fn debug_blockers(mut gizmos: Gizmos, blocker_q: Query<(&GlobalTransform, &NavSquare)>) {
-    for (pos, blocker) in blocker_q.iter() {
-        if blocker.walkable {
-            gizmos.rect_2d(pos.translation().xy(), 0., blocker.size, Color::GREEN)
+    let mut did_change = false;
+    for (transform, nav_square) in &changed_nav_q {
+        let position = transform.translation().truncate();
+        let area = Rect::from_corners(position, position + nav_square.size);
+        if nav_square.walkable {
+            navigation.allowed.push(area);
         } else {
-            gizmos.rect_2d(pos.translation().xy(), 0., blocker.size, Color::RED)
+            navigation.disallowed.push(area);
         }
+        did_change = true;
+    }
+    if did_change {
+        navigation.nav_graph =
+            nav_graph_from(&navigation.allowed, &navigation.disallowed, &map_bounds());
     }
 }
 
-fn update_add_blockers(
-    mut cmds: Commands,
-    window_q: Query<&Window>,
-    camera_q: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    mouse_button: Res<ButtonInput<MouseButton>>,
-) {
-    if let Ok(window) = window_q.get_single() {
-        for (camera, camera_transform) in camera_q.iter() {
-            if let Some(cursor_pos) = window.cursor_position() {
-                if let Some(world_cursor_pos) =
-                    camera.viewport_to_world_2d(camera_transform, cursor_pos)
-                {
-                    if mouse_button.just_pressed(MouseButton::Right) {
-                        cmds.spawn(NavBundle::allowed(
-                            (world_cursor_pos.x - world_cursor_pos.x % 64.) + 32.,
-                            (world_cursor_pos.y - world_cursor_pos.y % 64.) + 32.,
-                            64.,
-                            64.,
-                        ));
-                    }
-                    if mouse_button.just_pressed(MouseButton::Left) {
-                        cmds.spawn(NavBundle::blocked(
-                            (world_cursor_pos.x - world_cursor_pos.x % 64.) + 32.,
-                            (world_cursor_pos.y - world_cursor_pos.y % 64.) + 32.,
-                            64.,
-                            64.,
-                        ));
-                    }
-                }
-            }
-        }
-    }
-}
+pub fn update_nav(pos_q: Query<&GlobalTransform>) {}
 
-fn debug_nav(
-    mut gizmos: Gizmos,
-    navigator_q: Query<(&GlobalTransform, &Navigator)>,
-    pos_q: Query<&GlobalTransform>,
-    blocker_q: Query<(&GlobalTransform, &NavSquare)>,
-) {
-    let blocked: Vec<_> = blocker_q
-        .iter()
-        .map(|(pos, blocker)| {
-            let half_x = blocker.size.x / 2.;
-            let half_y = blocker.size.y / 2.;
-            Rect::new(
-                pos.translation().x - half_x,
-                pos.translation().y - half_y,
-                pos.translation().x + half_x,
-                pos.translation().y + half_y,
-            )
-        })
-        .collect();
-    let map_bounds = Rect::new(
-        0.,
-        0.,
-        TILE_SIZE * WORLD_SIZE.x as f32,
-        TILE_SIZE * WORLD_SIZE.y as f32,
-    );
-    for (position, navigator) in navigator_q.iter() {
-        let end = pos_q.get(navigator.navigate_to).unwrap();
-        let path = path_between_2d(
-            blocked.clone(),
-            map_bounds,
-            position.translation().truncate(),
-            end.translation().truncate(),
-        );
-        for point in path.windows(2) {
-            gizmos.arrow_2d(point[0], point[1], Color::BLUE);
-        }
-    }
+pub struct NavPlugin<S: States> {
+    state: S,
+    or_state: S,
+    loading_state: S,
 }
 
 impl<S: States> Plugin for NavPlugin<S> {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(self.state.clone()), (setup_nav))
+        app.init_resource::<Navigation>()
+            .add_systems(
+                OnTransition {
+                    from: self.loading_state.clone(),
+                    to: self.state.clone(),
+                },
+                setup_nav,
+            )
+            .add_systems(
+                OnTransition {
+                    from: self.loading_state.clone(),
+                    to: self.or_state.clone(),
+                },
+                setup_nav,
+            )
             .add_systems(
                 Update,
-                (update_nav, debug_nav, debug_blockers).run_if(in_state(self.state.clone())),
+                (update_nav, update_nav_graph_changed)
+                    .run_if(in_state(self.state.clone()).or_else(in_state(self.or_state.clone()))),
             );
     }
 }
 
 impl<S: States> NavPlugin<S> {
-    pub fn run_on_state(state: S) -> Self {
-        Self { state }
+    pub fn run_on_state_or(state: S, or_state: S, loading_state: S) -> Self {
+        Self {
+            state,
+            or_state,
+            loading_state,
+        }
     }
 }

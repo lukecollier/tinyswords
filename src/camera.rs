@@ -9,21 +9,41 @@ pub struct MainCamera {
 
 pub struct CameraPlugin<S: States> {
     state: S,
+    or_state: S,
+    loading_state: S,
 }
 
 impl<S: States> Plugin for CameraPlugin<S> {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(self.state.clone()), setup_game_camera)
-            .add_systems(
-                Update,
-                update_game_camera.run_if(in_state(self.state.clone())),
-            );
+        app.add_systems(
+            OnTransition {
+                from: self.loading_state.clone(),
+                to: self.state.clone(),
+            },
+            setup_game_camera,
+        )
+        .add_systems(
+            OnTransition {
+                from: self.loading_state.clone(),
+                to: self.or_state.clone(),
+            },
+            setup_game_camera,
+        )
+        .add_systems(
+            Update,
+            update_game_camera
+                .run_if(in_state(self.state.clone()).or_else(in_state(self.or_state.clone()))),
+        );
     }
 }
 
 impl<S: States> CameraPlugin<S> {
-    pub fn run_on_state(state: S) -> Self {
-        Self { state }
+    pub fn run_on_state_or(state: S, or_state: S, loading_state: S) -> Self {
+        Self {
+            state,
+            or_state,
+            loading_state,
+        }
     }
 }
 

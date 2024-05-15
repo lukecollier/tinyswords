@@ -1,19 +1,19 @@
 use bevy::prelude::*;
 
 pub mod camera;
+pub mod characters;
 pub mod editor;
 pub mod game;
 pub mod nav;
 pub mod ui;
-pub mod unit;
 pub mod world;
+
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Default, States)]
 pub enum GameState {
     #[default]
     AssetLoading,
-    InMainMenu,
-    Paused,
     InGame,
+    InEditor,
 }
 
 #[cfg(debug_assertions)]
