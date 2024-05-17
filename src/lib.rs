@@ -2,6 +2,8 @@ use bevy::prelude::*;
 
 pub mod camera;
 pub mod characters;
+#[cfg(debug_assertions)]
+pub mod diagnostics;
 pub mod editor;
 pub mod game;
 pub mod nav;
@@ -20,5 +22,3 @@ pub enum GameState {
 const IS_DEBUG: bool = true;
 #[cfg(not(debug_assertions))]
 const IS_DEBUG: bool = false;
-
-// todo: Move events here

@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy_asset_loader::prelude::*;
+use iyes_perf_ui::PerfUiPlugin;
 
 use crate::GameState;
 

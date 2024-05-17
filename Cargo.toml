@@ -11,6 +11,7 @@ bevy_rand = "0.5"
 bevy_prng = { version = "0.5", features = ["rand_chacha", "wyrand"] }
 image = "0.25.1"
 bevy_egui = "0.27.0"
+iyes_perf_ui = "0.2.3"
 
 # Enable a small amount of optimization in debug mode
 [profile.dev]

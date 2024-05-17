@@ -2,7 +2,9 @@ use crate::{
     camera::MainCamera,
     characters::{Character, CharacterAssets, CharacterBundle},
     nav::{NavBundle, Navigation},
-    world::{Elevation, Tile, TileMap, WorldAssets, TILE_SIZE, TILE_VEC, WORLD_SIZE},
+    world::{
+        update_register_new_tile, LandMap, TileMap, WorldAssets, TILE_SIZE, TILE_VEC, WORLD_SIZE,
+    },
     GameState,
 };
 use bevy::{prelude::*, render::camera::Viewport};
@@ -19,6 +21,10 @@ pub struct EditorAssets {
     grass: Handle<Image>,
     #[asset(path = "editor/sand_button.png")]
     sand: Handle<Image>,
+    #[asset(path = "editor/steps_icon.png")]
+    steps: Handle<Image>,
+    #[asset(path = "editor/rock_icon.png")]
+    rock: Handle<Image>,
 
     // Characters
     #[asset(path = "editor/pawn_icon.png")]
@@ -202,10 +208,9 @@ fn update_place_terrain(
     window_q: Query<&Window>,
     mut camera_q: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     // todo: Find the tile that already exists and update
-    tile_q: Query<(&mut Tile, &mut Elevation)>,
     mouse_button: Res<ButtonInput<MouseButton>>,
     options: ResMut<EditorOptions>,
-    mut tile_map: ResMut<TileMap>,
+    tile_map: ResMut<TileMap>,
     world_assets: Res<WorldAssets>,
     mut gizmos: Gizmos,
 ) {
@@ -253,45 +258,37 @@ fn update_place_terrain(
                     let p_x = (tile_pos.x + x) as i32 - place_size as i32 / 2;
                     let p_y = (tile_pos.y + y) as i32 - place_size as i32 / 2;
                     if p_x >= 0 as i32
-                        && p_x >= 0 as i32
+                        && p_y >= 0 as i32
                         && p_x < WORLD_SIZE.x as i32
                         && p_y < WORLD_SIZE.y as i32
-                        && !tile_map.is_occupied(p_x as u16, p_y as u16)
+                        && !tile_map.contains(p_x, p_y)
                     {
                         match options.brush {
-                            BrushType::Terrain(Terrain::Sand) => {
-                                tile_map.occupy(p_x as u16, p_y as u16, options.elevation);
-                                if options.elevation == 0 {
-                                    cmds.spawn(NavBundle::allowed(
-                                        p_x as f32 * TILE_SIZE,
-                                        p_y as f32 * TILE_SIZE,
-                                        TILE_SIZE,
-                                        TILE_SIZE,
-                                    ));
-                                }
-                                world_assets.spawn_sand(
+                            BrushType::Terrain(_) if options.elevation > 0 => {
+                                world_assets.spawn_empty(
                                     &mut cmds,
                                     p_x as u16,
                                     p_y as u16,
                                     options.elevation,
                                 );
                             }
-                            BrushType::Terrain(Terrain::Grass) => {
-                                tile_map.occupy(p_x as u16, p_y as u16, options.elevation);
-                                if options.elevation == 0 {
-                                    cmds.spawn(NavBundle::allowed(
-                                        p_x as f32 * TILE_SIZE,
-                                        p_y as f32 * TILE_SIZE,
-                                        TILE_SIZE,
-                                        TILE_SIZE,
-                                    ));
-                                }
-                                world_assets.spawn_grass_on_sand(
-                                    &mut cmds,
-                                    p_x as u16,
-                                    p_y as u16,
-                                    options.elevation,
-                                );
+                            BrushType::Terrain(Terrain::Sand) if options.elevation == 0 => {
+                                cmds.spawn(NavBundle::allowed(
+                                    p_x as f32 * TILE_SIZE,
+                                    p_y as f32 * TILE_SIZE,
+                                    TILE_SIZE,
+                                    TILE_SIZE,
+                                ));
+                                world_assets.spawn_sand(&mut cmds, p_x as u16, p_y as u16, 0);
+                            }
+                            BrushType::Terrain(Terrain::Grass) if options.elevation == 0 => {
+                                cmds.spawn(NavBundle::allowed(
+                                    p_x as f32 * TILE_SIZE,
+                                    p_y as f32 * TILE_SIZE,
+                                    TILE_SIZE,
+                                    TILE_SIZE,
+                                ));
+                                world_assets.spawn_grass(&mut cmds, p_x as u16, p_y as u16, 0);
                             }
                             _ => {}
                         }
@@ -408,7 +405,8 @@ fn update_editor_menu(
 enum Terrain {
     Grass,
     Sand,
-    Empty,
+    Rock,
+    Steps,
 }
 
 #[derive(Component, Eq, PartialEq, Clone, Copy)]
@@ -529,7 +527,9 @@ fn update_editor_ui(
     }
 
     if options.show_terrain {
+        let rock_texture = contexts.add_image(assets.rock.clone_weak());
         let sand_texture = contexts.add_image(assets.sand.clone_weak());
+        let steps_texture = contexts.add_image(assets.steps.clone_weak());
         let grass_texture = contexts.add_image(assets.grass.clone_weak());
         egui::Window::new("Terrain")
             .resizable(false)
@@ -568,6 +568,37 @@ fn update_editor_ui(
                                 options.brush = BrushType::None;
                             } else {
                                 options.brush = BrushType::Terrain(Terrain::Grass);
+                            }
+                        };
+                        let rock_image = egui::load::SizedTexture::new(rock_texture, [32.0, 32.0]);
+                        if ImageButton::new(rock_image)
+                            .selected(options.brush == BrushType::Terrain(Terrain::Rock))
+                            .ui(ui)
+                            .on_hover_text("rocks")
+                            .clicked()
+                            || (options.show_terrain
+                                && keyboard_input.just_pressed(KeyCode::Digit3))
+                        {
+                            if options.brush == BrushType::Terrain(Terrain::Rock) {
+                                options.brush = BrushType::None;
+                            } else {
+                                options.brush = BrushType::Terrain(Terrain::Rock);
+                            }
+                        };
+                        let steps_image =
+                            egui::load::SizedTexture::new(steps_texture, [32.0, 32.0]);
+                        if ImageButton::new(steps_image)
+                            .selected(options.brush == BrushType::Terrain(Terrain::Steps))
+                            .ui(ui)
+                            .on_hover_text("steps_image")
+                            .clicked()
+                            || (options.show_terrain
+                                && keyboard_input.just_pressed(KeyCode::Digit4))
+                        {
+                            if options.brush == BrushType::Terrain(Terrain::Steps) {
+                                options.brush = BrushType::None;
+                            } else {
+                                options.brush = BrushType::Terrain(Terrain::Steps);
                             }
                         };
                     });
@@ -624,6 +655,8 @@ impl<S: States> Plugin for EditorPlugin<S> {
             (
                 update_editor_ui,
                 update_editor_menu,
+                update_place_terrain,
+                // todo(improvement): I'd love the api to just be "spawn components" eventually
                 update_place_terrain,
                 update_place_character,
                 update_block_camera_move_egui,

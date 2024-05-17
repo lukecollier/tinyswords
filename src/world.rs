@@ -4,7 +4,6 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use bevy::sprite::{Material2d, Material2dPlugin, MaterialMesh2dBundle};
 use bevy::utils::hashbrown::HashMap;
-use bevy::utils::HashSet;
 /**
  * This is the plugin for the world, it's animations, and creating blocking
  */
@@ -71,10 +70,22 @@ enum Land {
     Grass,
 }
 
+#[derive(Component)]
+struct DespawnOnElevationChange;
+#[derive(Component)]
+struct SandMeetsGrass;
+#[derive(Component)]
+struct CliffLand;
+#[derive(Component)]
+struct Crumbs;
 #[derive(Component, PartialEq, Eq, Clone, Copy, Debug, Hash)]
 struct Platau;
 #[derive(Component, PartialEq, Eq, Clone, Copy, Debug, Hash)]
+struct Coast;
+#[derive(Component, PartialEq, Eq, Clone, Copy, Debug, Hash)]
 struct Cliff;
+#[derive(Component)]
+struct Shadow;
 
 impl Default for GlobalAnimation {
     fn default() -> Self {
@@ -127,7 +138,6 @@ impl Material2d for WaterMaterial {
 }
 
 impl WorldAssets {
-    // sand index's
     const ISOLATE: usize = 18;
     const CAP_RIGHT: usize = 17;
     const HORIZONTAL: usize = 16;
@@ -350,78 +360,80 @@ impl WorldAssets {
         }
     }
 
-    fn cliff_detail(&self, cmds: &mut Commands, xy: U16Vec2, height: u8) -> Vec<Entity> {
+    fn grass_crumbs(&self, xy: Vec2, z: f32) -> SpriteSheetBundle {
+        let mut bundle = self.grass(xy, z);
+        bundle.atlas.index = WorldAssets::CRUMBS as usize;
+        bundle
+    }
+
+    fn sand_crumbs(&self, xy: Vec2, z: f32) -> SpriteSheetBundle {
+        let mut bundle = self.sand(xy, z);
+        bundle.atlas.index = WorldAssets::CRUMBS as usize;
+        bundle
+    }
+
+    fn cliff_detail(&self, cmds: &mut Commands, height: u8) -> Vec<Entity> {
         assert_ne!(height, 0);
-        let z_offset = height as f32 + (WORLD_SIZE.y - xy.y) as f32;
         let wall_idx = self.cliff_index_from_bitmask(0);
-        let shadow = self.shadow(TILE_VEC * 0.5, z_offset);
+        let shadow = self.shadow(TILE_VEC * 0.5, 0.05);
         let platau_idx = self.platau_index_from_bitmask(WorldAssets::ISOLATE as u8);
         let mut children = vec![];
-        children.push(
-            cmds.spawn((
-                self.coast(TILE_VEC * 0.5, -z_offset - 1.0),
-                GloballyAnimated::new(7),
-            ))
-            .id(),
-        );
         for i in 1..=height {
             let platau_sprite = self.cliff(
                 platau_idx as u8,
                 Vec2::Y * TILE_SIZE * i as f32,
-                z_offset + 0.3 + i as f32,
+                0.3 + i as f32,
             );
-            children.push(cmds.spawn((platau_sprite, Platau, Elevation(i))).id());
+            children.push(
+                cmds.spawn((
+                    platau_sprite,
+                    Platau,
+                    DespawnOnElevationChange,
+                    Elevation(i),
+                ))
+                .id(),
+            );
             let wall_sprite = self.cliff(
                 wall_idx as u8,
                 Vec2::Y * TILE_SIZE * (i - 1) as f32,
-                z_offset + 0.1 + i as f32,
+                0.4 + (i - 1) as f32,
             );
-            children.push(cmds.spawn((wall_sprite, Cliff, Elevation(i - 1))).id());
+            children.push(
+                cmds.spawn((
+                    wall_sprite,
+                    Cliff,
+                    DespawnOnElevationChange,
+                    Elevation(i - 1),
+                ))
+                .id(),
+            );
         }
-        children.push(cmds.spawn(shadow).id());
+        // todo(improvement): Shadow could work like coast lines to automatically get cleaned up
+        // via changes
+        children.push(cmds.spawn((shadow, Shadow, DespawnOnElevationChange)).id());
         children
     }
 
-    pub fn spawn_grass_on_sand(
-        &self,
-        cmds: &mut Commands,
-        x: u16,
-        y: u16,
-        elevation: u8,
-    ) -> Entity {
+    pub fn spawn_grass(&self, cmds: &mut Commands, x: u16, y: u16, elevation: u8) -> Entity {
         let tile = TileBundle::new(x, y, elevation);
-        cmds.spawn((tile, Land::Grass))
+        cmds.spawn(tile)
             .with_children(|parent| {
-                let z_offset = (WORLD_SIZE.y - y) as f32 + elevation as f32;
-                parent.spawn((
-                    self.sand(Vec2::ZERO, z_offset - 0.01),
-                    Land::Sand,
-                    Elevation(elevation),
-                ));
-                parent.spawn((
-                    self.grass(Vec2::ZERO, z_offset),
-                    Land::Grass,
-                    Elevation(elevation),
-                ));
-                parent.spawn((
-                    self.coast(TILE_VEC * 0.5, -z_offset - 1.0),
-                    GloballyAnimated::new(7),
-                ));
+                parent.spawn((self.grass(Vec2::ZERO, 0.), Land::Grass, Elevation(0)));
             })
             .id()
     }
 
+    pub fn spawn_empty(&self, cmds: &mut Commands, x: u16, y: u16, elevation: u8) -> Entity {
+        let tile = TileBundle::new(x, y, elevation);
+        cmds.spawn(tile).id()
+    }
+
     pub fn spawn_sand(&self, cmds: &mut Commands, x: u16, y: u16, elevation: u8) -> Entity {
         let tile = TileBundle::new(x, y, elevation);
-        cmds.spawn((tile, Land::Sand))
+        cmds.spawn(tile)
             .with_children(|parent| {
-                let z_offset = (WORLD_SIZE.y - y) as f32 + elevation as f32;
-                let sprite = self.sand(Vec2::ZERO, z_offset);
-                parent.spawn((sprite, Land::Sand, Elevation(elevation)));
-                parent.spawn((
-                    self.coast(TILE_VEC * 0.5, -z_offset - 1.0),
-                    GloballyAnimated::new(7),
-                ));
+                let sprite = self.sand(Vec2::ZERO, 0.);
+                parent.spawn((sprite, Land::Sand, Elevation(0)));
             })
             .id()
     }
@@ -448,6 +460,93 @@ pub struct WorldPlugin<S: States> {
     loading_state: S,
 }
 
+// todo: This would work by checking the land around the changed land, if any are sand we spawn a
+// sand land underneath the tile. (With the sand meeets grass tag)
+// We then check neighbours and despawn their children if the grass neighbours are now fully
+// surrounded by grass
+fn update_meets_grass(
+    mut cmds: Commands,
+    land_q: Query<(&Land, &Elevation, &GlobalTransform), (Added<Land>, Without<SandMeetsGrass>)>,
+    world_assets: ResMut<WorldAssets>,
+    land_map: Res<LandMap>,
+) {
+    for (land, Elevation(elevation), transform) in &land_q {
+        let tile_pos = (transform.translation().truncate() / TILE_VEC)
+            .floor()
+            .as_i16vec2();
+    }
+}
+
+fn update_coastline(
+    mut cmds: Commands,
+    world_assets: ResMut<WorldAssets>,
+    query: Query<(Entity, &Tile), Added<Tile>>,
+    children_q: Query<&Children, With<Tile>>,
+    coast_q: Query<Entity, With<Coast>>,
+    tile_map: Res<TileMap>,
+) {
+    for (entity, tile) in &query {
+        let x = tile.pos.x as i32;
+        let y = tile.pos.y as i32;
+        let neighbours = tile_map.count_neighbours(x, y);
+        if neighbours < 4 {
+            let coast_entity = cmds
+                .spawn((
+                    world_assets.coast(TILE_VEC * 0.5, -100.0),
+                    GloballyAnimated::new(7),
+                    Coast,
+                ))
+                .id();
+            cmds.entity(entity).push_children(&[coast_entity]);
+        }
+
+        if tile_map.count_neighbours(x, y + 1) == 4 {
+            if let Some(entity) = tile_map.get_entity(x, y + 1) {
+                if let Ok(children) = children_q.get(*entity) {
+                    for child in children {
+                        coast_q.get(*child).ok().map(|entity| {
+                            cmds.entity(entity).despawn_recursive();
+                        });
+                    }
+                }
+            };
+        }
+        if tile_map.count_neighbours(x, y - 1) == 4 {
+            if let Some(entity) = tile_map.get_entity(x, y - 1) {
+                if let Ok(children) = children_q.get(*entity) {
+                    for child in children {
+                        coast_q.get(*child).ok().map(|entity| {
+                            cmds.entity(entity).despawn_recursive();
+                        });
+                    }
+                }
+            };
+        }
+        if tile_map.count_neighbours(x + 1, y) == 4 {
+            if let Some(entity) = tile_map.get_entity(x + 1, y) {
+                if let Ok(children) = children_q.get(*entity) {
+                    for child in children {
+                        coast_q.get(*child).ok().map(|entity| {
+                            cmds.entity(entity).despawn_recursive();
+                        });
+                    }
+                }
+            };
+        }
+        if tile_map.count_neighbours(x - 1, y) == 4 {
+            if let Some(entity) = tile_map.get_entity(x - 1, y) {
+                if let Ok(children) = children_q.get(*entity) {
+                    for child in children {
+                        coast_q.get(*child).ok().map(|entity| {
+                            cmds.entity(entity).despawn_recursive();
+                        });
+                    }
+                }
+            };
+        }
+    }
+}
+
 impl<S: States> Plugin for WorldPlugin<S> {
     fn build(&self, app: &mut App) {
         app.configure_loading_state(
@@ -469,12 +568,27 @@ impl<S: States> Plugin for WorldPlugin<S> {
         )
         .init_resource::<GlobalAnimation>()
         .init_resource::<TileMap>()
+        .init_resource::<LandMap>()
         .add_plugins(Material2dPlugin::<WaterMaterial>::default())
+        // these nust happen in the PreUpdate so our sync state is always in-step with update
+        // systems
+        .add_systems(
+            PreUpdate,
+            (
+                update_register_new_tile,
+                update_register_new_land,
+                // these should happen after the land registers to avoid race conidtions
+                update_remove_land.after(update_register_new_land),
+                update_remove_tile.after(update_register_new_tile),
+            ),
+        )
         .add_systems(
             Update,
             (
-                update_remove_tile,
-                update_register_new_tile,
+                update_coastline,
+                update_added_crumbs,
+                update_added_crumbs_cliff,
+                update_meets_grass,
                 update_added_land_atlas_index,
                 update_changed_cliff_atlas_index,
                 update_changed_platau_atlas_index,
@@ -517,9 +631,6 @@ pub struct TileBundle {
     pub visibility: VisibilityBundle,
 }
 
-#[derive(Component)]
-pub struct DeleteTile;
-
 impl Default for TileBundle {
     fn default() -> Self {
         TileBundle {
@@ -533,6 +644,7 @@ impl Default for TileBundle {
 
 impl TileBundle {
     pub fn new(x: u16, y: u16, elevation: u8) -> Self {
+        let z_offset = elevation as f32 + (WORLD_SIZE.y as f32 - y as f32);
         TileBundle {
             tile: Tile::new(x, y),
             elevation: Elevation(elevation),
@@ -543,7 +655,7 @@ impl TileBundle {
             transform: TransformBundle::from_transform(Transform::from_xyz(
                 x as f32 * TILE_SIZE,
                 y as f32 * TILE_SIZE,
-                0.,
+                z_offset,
             )),
             ..default()
         }
@@ -579,88 +691,425 @@ fn update_animated_tiles(
 }
 
 #[derive(Resource, Default, Debug)]
+pub struct LandMap {
+    tiles: HashMap<(i16, i16, u8, Land), Entity>,
+}
+
+impl LandMap {
+    fn remove_by_entity(&mut self, entity: Entity) -> Option<Entity> {
+        for (pos, e) in self.tiles.clone() {
+            if e == entity {
+                return self.tiles.remove(&pos);
+            }
+        }
+        return None;
+    }
+}
+
+#[derive(Resource, Default, Debug)]
 pub struct TileMap {
-    tiles: HashMap<(u16, u16), u8>,
+    tiles: HashMap<(u16, u16), (u8, Entity)>,
 }
 
 impl TileMap {
-    pub fn is_occupied(&self, x: u16, y: u16) -> bool {
+    pub fn count_neighbours(&self, x: i32, y: i32) -> u8 {
+        self.contains(x + 1, y) as u8
+            + self.contains(x - 1, y) as u8
+            + self.contains(x, y + 1) as u8
+            + self.contains(x, y - 1) as u8
+    }
+
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        if x < 0 || y < 0 {
+            return false;
+        }
         self.tiles.contains_key(&(x as u16, y as u16))
     }
 
     pub fn get_elevation(&self, x: u16, y: u16) -> Option<&u8> {
+        self.tiles
+            .get(&(x as u16, y as u16))
+            .map(|(elevation, _)| elevation)
+    }
+
+    pub fn get_entity(&self, x: i32, y: i32) -> Option<&Entity> {
+        if x < 0 || y < 0 {
+            return None;
+        }
+        self.tiles
+            .get(&(x as u16, y as u16))
+            .map(|(_, entity)| entity)
+    }
+
+    fn remove_by_entity(&mut self, entity: Entity) -> Option<(u8, Entity)> {
+        for (pos, (_, e)) in self.tiles.clone() {
+            if e == entity {
+                return self.tiles.remove(&pos);
+            }
+        }
+        return None;
+    }
+
+    pub fn get(&self, x: i32, y: i32) -> Option<&(u8, Entity)> {
+        if x < 0 || y < 0 {
+            return None;
+        }
         self.tiles.get(&(x as u16, y as u16))
     }
 
-    pub fn occupy(&mut self, x: u16, y: u16, elevation: u8) {
-        self.tiles.insert((x as u16, y as u16), elevation);
+    pub fn insert(&mut self, x: u16, y: u16, elevation: u8, entity: Entity) {
+        self.tiles.insert((x as u16, y as u16), (elevation, entity));
     }
 }
 
-fn update_register_new_tile(
-    tiles_q: Query<(&Tile, &Elevation), Added<Tile>>,
+pub fn update_register_new_tile(
+    tiles_q: Query<(Entity, &Tile, &Elevation), Added<Tile>>,
     mut tile_map: ResMut<TileMap>,
 ) {
-    for (tile, elevation) in &tiles_q {
-        tile_map.tiles.insert((tile.pos.x, tile.pos.y), elevation.0);
+    for (entity, tile, elevation) in &tiles_q {
+        tile_map
+            .tiles
+            .insert((tile.pos.x, tile.pos.y), (elevation.0, entity));
     }
 }
 
-fn update_remove_tile(
-    mut cmds: Commands,
-    removed_tiles_q: Query<(Entity, &Tile), With<DeleteTile>>,
-    mut tile_map: ResMut<TileMap>,
+fn update_register_new_land(
+    tiles_q: Query<(Entity, &GlobalTransform, &Land, &Elevation), Added<Land>>,
+    mut tile_map: ResMut<LandMap>,
 ) {
-    for (entity, tile) in &removed_tiles_q {
-        tile_map.tiles.remove(&(tile.pos.x, tile.pos.y));
-        if let Some(found) = cmds.get_entity(entity) {
-            found.despawn_recursive();
-        }
+    for (entity, transform, land, elevation) in &tiles_q {
+        let tile_pos = (transform.translation().truncate() / TILE_VEC)
+            .floor()
+            .as_i16vec2();
+        tile_map
+            .tiles
+            .insert((tile_pos.x, tile_pos.y, elevation.0, *land), entity);
     }
 }
 
-// todo(improvement): We should only spawn crumbs when the tiles surrounding the point at the base
-// are
+// todo(improvement): This is very slow operation!!! O(2n + nlogn) or something, need's fixing
+fn update_remove_land(mut removed: RemovedComponents<Tile>, mut tile_map: ResMut<LandMap>) {
+    for entity in removed.read() {
+        tile_map.remove_by_entity(entity);
+    }
+}
+
+// todo(improvement): This is very slow operation!!! O(2n + nlogn) or something, need's fixing
+fn update_remove_tile(mut removed: RemovedComponents<Tile>, mut tile_map: ResMut<TileMap>) {
+    for entity in removed.read() {
+        tile_map.remove_by_entity(entity);
+    }
+}
+
 fn update_tile_elevation(
     mut cmds: Commands,
-    tiles_q: Query<(Entity, Ref<Elevation>, &Tile)>,
+    tiles_q: Query<(Entity, Ref<Elevation>), With<Tile>>,
     children_q: Query<&Children>,
+    despawn_q: Query<Entity, With<DespawnOnElevationChange>>,
     assets: Res<WorldAssets>,
 ) {
-    for (entity, elevation, tile) in &tiles_q {
+    for (entity, elevation) in &tiles_q {
         if elevation.is_changed() || elevation.is_added() {
-            // 1. we clear the children completely
-            // 2. we spawn a new stack of children dependent on the world around the tile map
-            // - if tile below is water, spawn a sea cliff
-            // - if tile below is land, spawn a land cliff
             if elevation.0 > 0 {
                 if let Ok(children) = children_q.get(entity) {
                     children.iter().for_each(|child| {
-                        cmds.entity(*child).despawn_recursive();
+                        if let Some(entity) = despawn_q.get(*child).ok() {
+                            cmds.entity(entity).despawn_recursive();
+                        }
                     });
                 }
-                let details = assets.cliff_detail(&mut cmds, tile.pos, elevation.0);
+                let details = assets.cliff_detail(&mut cmds, elevation.0);
                 cmds.entity(entity).push_children(&details);
             }
         }
     }
 }
 
-// todo: Elevation can be replaced by the z index on the transform
+fn update_added_crumbs_cliff(
+    mut cmds: Commands,
+    cliff_q: Query<(Entity, &GlobalTransform, &Elevation), (Added<Cliff>, Without<CliffLand>)>,
+    children_q: Query<&Children>,
+    land_q: Query<(&Elevation, &Land)>,
+    assets: Res<WorldAssets>,
+    tile_map: Res<TileMap>,
+) {
+    for (entity, transform, elevation) in &cliff_q {
+        let tile_pos = (transform.translation().truncate() / TILE_VEC)
+            .floor()
+            .as_i16vec2();
+        if let Some(bot_entity) = tile_map.get_entity(tile_pos.x.into(), (tile_pos.y - 1).into()) {
+            children_q.get(*bot_entity).ok().map(|children| {
+                for child in children {
+                    if let Ok((land_elevation, land)) = land_q.get(*child) {
+                        if land_elevation.0 == elevation.0 {
+                            if let Land::Grass = land {
+                                let crumbs = cmds
+                                    .spawn((
+                                        (assets.grass_crumbs(Vec2::ZERO, 0.7)),
+                                        Crumbs,
+                                        CliffLand,
+                                        Elevation(elevation.0),
+                                    ))
+                                    .id();
+                                let grass = cmds
+                                    .spawn((
+                                        (assets.grass(Vec2::ZERO, -0.1)),
+                                        Land::Grass,
+                                        CliffLand,
+                                        Elevation(elevation.0),
+                                    ))
+                                    .id();
+                                cmds.entity(entity).push_children(&[grass, crumbs]);
+                            }
+                            if let Land::Sand = land {
+                                let crumbs = cmds
+                                    .spawn((
+                                        (assets.sand_crumbs(Vec2::ZERO, 0.6)),
+                                        Crumbs,
+                                        CliffLand,
+                                        Elevation(elevation.0),
+                                    ))
+                                    .id();
+                                let sand = cmds
+                                    .spawn((
+                                        (assets.sand(Vec2::ZERO, -0.1)),
+                                        Land::Sand,
+                                        CliffLand,
+                                        Elevation(elevation.0),
+                                    ))
+                                    .id();
+                                cmds.entity(entity).push_children(&[crumbs, sand]);
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        if let Some(left_entity) = tile_map.get_entity((tile_pos.x - 1).into(), tile_pos.y.into()) {
+            children_q.get(*left_entity).ok().map(|children| {
+                for child in children {
+                    if let Ok((land_elevation, land)) = land_q.get(*child) {
+                        if land_elevation.0 == elevation.0 {
+                            if let Land::Grass = land {
+                                let grass = cmds
+                                    .spawn((
+                                        (assets.grass(Vec2::ZERO, -0.1)),
+                                        Land::Grass,
+                                        CliffLand,
+                                        Elevation(elevation.0),
+                                    ))
+                                    .id();
+                                cmds.entity(entity).push_children(&[grass]);
+                            }
+                            if let Land::Sand = land {
+                                let sand = cmds
+                                    .spawn((
+                                        (assets.sand(Vec2::ZERO, -0.1)),
+                                        Land::Sand,
+                                        CliffLand,
+                                        Elevation(elevation.0),
+                                    ))
+                                    .id();
+                                cmds.entity(entity).push_children(&[sand]);
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        if let Some(left_entity) = tile_map.get_entity((tile_pos.x + 1).into(), tile_pos.y.into()) {
+            children_q.get(*left_entity).ok().map(|children| {
+                for child in children {
+                    if let Ok((land_elevation, land)) = land_q.get(*child) {
+                        if land_elevation.0 == elevation.0 {
+                            if let Land::Grass = land {
+                                let grass = cmds
+                                    .spawn((
+                                        (assets.grass(Vec2::ZERO, -0.1)),
+                                        Land::Grass,
+                                        CliffLand,
+                                        Elevation(elevation.0),
+                                    ))
+                                    .id();
+                                cmds.entity(entity).push_children(&[grass]);
+                            }
+                            if let Land::Sand = land {
+                                let sand = cmds
+                                    .spawn((
+                                        (assets.sand(Vec2::ZERO, -0.1)),
+                                        Land::Sand,
+                                        CliffLand,
+                                        Elevation(elevation.0),
+                                    ))
+                                    .id();
+                                cmds.entity(entity).push_children(&[sand]);
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+}
+
+fn update_added_crumbs(
+    mut cmds: Commands,
+    tiles_q: Query<(&GlobalTransform, &Elevation, &Land), (Added<Land>, Without<CliffLand>)>,
+    children_q: Query<&Children>,
+    land_q: Query<(&Elevation, &Land), With<CliffLand>>,
+    assets: Res<WorldAssets>,
+    tile_map: Res<TileMap>,
+) {
+    for (transform, elevation, land) in &tiles_q {
+        let tile_pos = (transform.translation().truncate() / TILE_VEC)
+            .floor()
+            .as_i16vec2();
+
+        if let Some((right_elevation, entity)) =
+            tile_map.get(tile_pos.x as i32 + 1, tile_pos.y as i32)
+        {
+            let mut should_spawn = true;
+            if let Ok(children) = children_q.get(*entity) {
+                for child in children {
+                    if let Ok((cliff_land_elevation, cliff_land)) = land_q.get(*child) {
+                        if cliff_land_elevation.0 == elevation.0 && cliff_land == land {
+                            should_spawn = false;
+                        }
+                    }
+                }
+            }
+            if *right_elevation > elevation.0 && should_spawn {
+                if let Land::Sand = land {
+                    let sand = cmds
+                        .spawn((
+                            (assets.sand(Vec2::ZERO, -0.1)),
+                            Land::Sand,
+                            CliffLand,
+                            Elevation(elevation.0),
+                        ))
+                        .id();
+                    cmds.entity(*entity).push_children(&[sand]);
+                }
+                if let Land::Grass = land {
+                    let grass = cmds
+                        .spawn((
+                            (assets.grass(Vec2::ZERO, -0.1)),
+                            Land::Grass,
+                            CliffLand,
+                            Elevation(elevation.0),
+                        ))
+                        .id();
+                    cmds.entity(*entity).push_children(&[grass]);
+                }
+            }
+        }
+
+        if let Some((left_elevation, entity)) =
+            tile_map.get(tile_pos.x as i32 - 1, tile_pos.y as i32)
+        {
+            let mut should_spawn = true;
+            if let Ok(children) = children_q.get(*entity) {
+                for child in children {
+                    if let Ok((cliff_land_elevation, cliff_land)) = land_q.get(*child) {
+                        if cliff_land_elevation.0 == elevation.0 && cliff_land == land {
+                            should_spawn = false;
+                        }
+                    }
+                }
+            }
+            if *left_elevation > elevation.0 && should_spawn {
+                if let Land::Sand = land {
+                    let sand = cmds
+                        .spawn((
+                            (assets.sand(Vec2::ZERO, -0.1)),
+                            Land::Sand,
+                            CliffLand,
+                            Elevation(elevation.0),
+                        ))
+                        .id();
+                    cmds.entity(*entity).push_children(&[sand]);
+                }
+                if let Land::Grass = land {
+                    let grass = cmds
+                        .spawn((
+                            (assets.grass(Vec2::ZERO, -0.1)),
+                            Land::Grass,
+                            CliffLand,
+                            Elevation(elevation.0),
+                        ))
+                        .id();
+                    cmds.entity(*entity).push_children(&[grass]);
+                }
+            }
+        }
+
+        if let Some((top_elevation, entity)) =
+            tile_map.get(tile_pos.x as i32, tile_pos.y as i32 + 1)
+        {
+            let mut should_spawn = true;
+            if let Ok(children) = children_q.get(*entity) {
+                for child in children {
+                    if let Ok((cliff_land_elevation, cliff_land)) = land_q.get(*child) {
+                        if cliff_land_elevation.0 == elevation.0 && cliff_land == land {
+                            should_spawn = false;
+                        }
+                    }
+                }
+            }
+            if *top_elevation > elevation.0 && should_spawn {
+                if let Land::Sand = land {
+                    let crumbs = cmds
+                        .spawn((
+                            (assets.sand_crumbs(Vec2::ZERO, 0.5)),
+                            Crumbs,
+                            Elevation(elevation.0),
+                        ))
+                        .id();
+                    let sand = cmds
+                        .spawn((
+                            (assets.sand(Vec2::ZERO, -0.1)),
+                            Land::Sand,
+                            CliffLand,
+                            Elevation(elevation.0),
+                        ))
+                        .id();
+                    cmds.entity(*entity).push_children(&[sand, crumbs]);
+                }
+                if let Land::Grass = land {
+                    let crumbs = cmds
+                        .spawn((
+                            (assets.grass_crumbs(Vec2::ZERO, 0.5)),
+                            Crumbs,
+                            Elevation(elevation.0),
+                        ))
+                        .id();
+                    let grass = cmds
+                        .spawn((
+                            (assets.grass(Vec2::ZERO, -0.1)),
+                            Land::Grass,
+                            CliffLand,
+                            Elevation(elevation.0),
+                        ))
+                        .id();
+                    cmds.entity(*entity).push_children(&[grass, crumbs]);
+                }
+            }
+        }
+    }
+}
+
 fn update_added_land_atlas_index(
     mut tiles_q: Query<(&mut TextureAtlas, &GlobalTransform, &Elevation, Ref<Land>)>,
     assets: Res<WorldAssets>,
 ) {
     let mut tiles: HashMap<(i16, i16, Elevation, Land), bool> =
         HashMap::with_capacity(tiles_q.iter().len());
-    // todo: Cache this in resource so we can avoid recalculations
     for (_, transform, elevation, land) in &tiles_q {
         let tile_pos = (transform.translation().truncate() / TILE_VEC)
             .floor()
             .as_i16vec2();
         tiles.insert((tile_pos.x, tile_pos.y, *elevation, *land), land.is_added());
     }
-    // we then use the coordinates to get a map of the neighbours and their land type
     for (mut atlas, transform, elevation, land) in &mut tiles_q {
         let tile_pos = (transform.translation().truncate() / TILE_VEC)
             .floor()
