@@ -468,12 +468,15 @@ fn update_meets_grass(
     mut cmds: Commands,
     land_q: Query<(&Land, &Elevation, &GlobalTransform), (Added<Land>, Without<SandMeetsGrass>)>,
     world_assets: ResMut<WorldAssets>,
-    land_map: Res<LandMap>,
+    mut land_map: ResMut<LandMap>,
 ) {
     for (land, Elevation(elevation), transform) in &land_q {
         let tile_pos = (transform.translation().truncate() / TILE_VEC)
             .floor()
             .as_i16vec2();
+        land_map.get(tile_pos.x, tile_pos.y, *elevation, *land);
+        let sand_neighbours =
+            land_map.count_neighbours(tile_pos.x, tile_pos.y, *elevation, Land::Sand);
     }
 }
 
@@ -570,10 +573,10 @@ impl<S: States> Plugin for WorldPlugin<S> {
         .init_resource::<TileMap>()
         .init_resource::<LandMap>()
         .add_plugins(Material2dPlugin::<WaterMaterial>::default())
-        // these nust happen in the PreUpdate so our sync state is always in-step with update
+        // these nust happen in the PostUpdate so our sync state is always in-step with update
         // systems
         .add_systems(
-            PreUpdate,
+            PostUpdate,
             (
                 update_register_new_tile,
                 update_register_new_land,
@@ -696,6 +699,16 @@ pub struct LandMap {
 }
 
 impl LandMap {
+    fn count_neighbours(&mut self, x: i16, y: i16, elevation: u8, land: Land) -> u8 {
+        self.tiles.contains_key(&(x + 1, y, elevation, land)) as u8
+            + self.tiles.contains_key(&(x - 1, y, elevation, land)) as u8
+            + self.tiles.contains_key(&(x, y + 1, elevation, land)) as u8
+            + self.tiles.contains_key(&(x, y - 1, elevation, land)) as u8
+    }
+    fn get(&mut self, x: i16, y: i16, elevation: u8, land: Land) -> Option<&Entity> {
+        self.tiles.get(&(x, y, elevation, land))
+    }
+
     fn remove_by_entity(&mut self, entity: Entity) -> Option<Entity> {
         for (pos, e) in self.tiles.clone() {
             if e == entity {

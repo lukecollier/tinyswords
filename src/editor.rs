@@ -656,8 +656,6 @@ impl<S: States> Plugin for EditorPlugin<S> {
                 update_editor_ui,
                 update_editor_menu,
                 update_place_terrain,
-                // todo(improvement): I'd love the api to just be "spawn components" eventually
-                update_place_terrain,
                 update_place_character,
                 update_block_camera_move_egui,
                 debug_nav_pathing,
