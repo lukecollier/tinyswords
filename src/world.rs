@@ -466,17 +466,75 @@ pub struct WorldPlugin<S: States> {
 // surrounded by grass
 fn update_meets_grass(
     mut cmds: Commands,
-    land_q: Query<(&Land, &Elevation, &GlobalTransform), (Added<Land>, Without<SandMeetsGrass>)>,
-    world_assets: ResMut<WorldAssets>,
+    land_q: Query<
+        (Entity, &Land, &Elevation, &GlobalTransform),
+        (Added<Land>, Without<SandMeetsGrass>),
+    >,
+    assets: ResMut<WorldAssets>,
     mut land_map: ResMut<LandMap>,
 ) {
-    for (land, Elevation(elevation), transform) in &land_q {
-        let tile_pos = (transform.translation().truncate() / TILE_VEC)
-            .floor()
-            .as_i16vec2();
-        land_map.get(tile_pos.x, tile_pos.y, *elevation, *land);
-        let sand_neighbours =
-            land_map.count_neighbours(tile_pos.x, tile_pos.y, *elevation, Land::Sand);
+    for (entity, land, Elevation(elevation), transform) in &land_q {
+        if *land == Land::Grass {
+            let tile_pos = (transform.translation().truncate() / TILE_VEC)
+                .floor()
+                .as_i16vec2();
+            let sand_neighbours =
+                land_map.count_neighbours(tile_pos.x, tile_pos.y, *elevation, Land::Sand);
+            if sand_neighbours > 0 {
+                let sand = cmds
+                    .spawn((
+                        (assets.sand(Vec2::ZERO, -0.1)),
+                        Land::Sand,
+                        CliffLand,
+                        Elevation(*elevation),
+                    ))
+                    .id();
+                cmds.entity(entity).push_children(&[sand]);
+            }
+            // todo: If the neighours are no longer bordering sand, delete the sand child.
+            //
+
+            // todo: Remove uglier coastline logic replace with this simplified version.
+            let left_sand_neighbours =
+                land_map.count_neighbours(tile_pos.x - 1, tile_pos.y, *elevation, Land::Sand);
+            if left_sand_neighbours == 0 {
+                if let Some(left_entity) =
+                    land_map.get(tile_pos.x - 1, tile_pos.y, *elevation, Land::Sand)
+                {
+                    cmds.entity(*left_entity).despawn();
+                }
+            }
+
+            let right_sand_neighbours =
+                land_map.count_neighbours(tile_pos.x + 1, tile_pos.y, *elevation, Land::Sand);
+            if right_sand_neighbours == 0 {
+                if let Some(right_entity) =
+                    land_map.get(tile_pos.x + 1, tile_pos.y, *elevation, Land::Sand)
+                {
+                    cmds.entity(*right_entity).despawn();
+                }
+            }
+
+            let top_sand_neighbours =
+                land_map.count_neighbours(tile_pos.x, tile_pos.y + 1, *elevation, Land::Sand);
+            if top_sand_neighbours == 0 {
+                if let Some(top_entity) =
+                    land_map.get(tile_pos.x, tile_pos.y + 1, *elevation, Land::Sand)
+                {
+                    cmds.entity(*top_entity).despawn();
+                }
+            }
+
+            let bot_sand_neighbours =
+                land_map.count_neighbours(tile_pos.x, tile_pos.y - 1, *elevation, Land::Sand);
+            if bot_sand_neighbours == 0 {
+                if let Some(bot_entity) =
+                    land_map.get(tile_pos.x, tile_pos.y - 1, *elevation, Land::Sand)
+                {
+                    cmds.entity(*bot_entity).despawn();
+                }
+            }
+        }
     }
 }
 
@@ -573,10 +631,11 @@ impl<S: States> Plugin for WorldPlugin<S> {
         .init_resource::<TileMap>()
         .init_resource::<LandMap>()
         .add_plugins(Material2dPlugin::<WaterMaterial>::default())
-        // these nust happen in the PostUpdate so our sync state is always in-step with update
-        // systems
+        // these nust happen in the PreUpdate, this is so the resource is up-to-date when the next
+        // Update comes around. PostUpdate won't work as the GlobalTransform need's to be worked
+        // out by then.
         .add_systems(
-            PostUpdate,
+            PreUpdate,
             (
                 update_register_new_tile,
                 update_register_new_land,
