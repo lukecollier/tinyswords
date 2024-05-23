@@ -3,7 +3,7 @@ use crate::{
     characters::{Character, CharacterAssets, CharacterBundle},
     nav::{NavBundle, Navigation},
     world::{
-        update_register_new_tile, LandMap, TileMap, WorldAssets, TILE_SIZE, TILE_VEC, WORLD_SIZE,
+        TileMap, WorldAssets, TILE_SIZE, TILE_VEC, WORLD_SIZE,
     },
     GameState,
 };
