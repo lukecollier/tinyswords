@@ -154,6 +154,7 @@ pub struct Stats {
 #[derive(Debug, PartialEq, Clone, Reflect)]
 pub enum Target {
     Entity(Entity),
+    // todo: Should use Vec3
     Position(Vec2),
     None,
 }
@@ -257,6 +258,7 @@ fn update_character_movement(
             Target::Position(position) => {
                 animation.current_animation = String::from("walk");
                 let magnitude = time.delta().as_secs_f32() * stats.speed_in_pixels_per_second;
+                // todo: Change the z depending on the height of the character
                 let direction = position.extend(transform.translation.z) - transform.translation;
                 *transform = Transform::from_translation(
                     transform.translation + direction.normalize() * magnitude,

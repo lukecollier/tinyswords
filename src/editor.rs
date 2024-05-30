@@ -2,9 +2,7 @@ use crate::{
     camera::MainCamera,
     characters::{Character, CharacterAssets, CharacterBundle},
     nav::{NavBundle, Navigation},
-    world::{
-        TileMap, WorldAssets, TILE_SIZE, TILE_VEC, WORLD_SIZE,
-    },
+    world::{TileMap, WorldAssets, TILE_SIZE, TILE_VEC, WORLD_SIZE},
     GameState,
 };
 use bevy::{prelude::*, render::camera::Viewport};

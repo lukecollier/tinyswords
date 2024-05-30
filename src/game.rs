@@ -156,25 +156,31 @@ fn update_character_orders(
             {
                 if let Some(Target::Position(pos)) = goal.path.back() {
                     let path: Vec<_> = navigation
-                        .path_between_2d(*pos, world_cursor_pos)
+                        .path_between_3d(pos.extend(0.0), world_cursor_pos.extend(0.0))
                         .into_iter()
-                        .map(|pos| Target::Position(pos))
+                        .map(|pos| Target::Position(pos.truncate()))
                         .collect();
                     goal.extend(path);
                 } else {
                     let path: Vec<_> = navigation
-                        .path_between_2d(transform.translation.truncate(), world_cursor_pos)
+                        .path_between_3d(
+                            transform.translation.truncate().extend(0.0),
+                            world_cursor_pos.extend(0.0),
+                        )
                         .into_iter()
-                        .map(|pos| Target::Position(pos))
+                        .map(|pos| Target::Position(pos.truncate()))
                         .collect();
                     goal.extend(path);
                 }
             } else if mouse_button.just_pressed(MouseButton::Right) {
                 goal.clear();
                 let path: Vec<_> = navigation
-                    .path_between_2d(transform.translation.truncate(), world_cursor_pos)
+                    .path_between_3d(
+                        transform.translation.truncate().extend(0.0),
+                        world_cursor_pos.extend(0.0),
+                    )
                     .into_iter()
-                    .map(|pos| Target::Position(pos))
+                    .map(|pos| Target::Position(pos.truncate()))
                     .collect();
                 goal.extend(path);
             }

@@ -1,5 +1,5 @@
 use bevy::{
-    math::I64Vec2,
+    math::{I16Vec3, I64Vec2},
     prelude::*,
     utils::{
         hashbrown::HashSet,
@@ -7,16 +7,16 @@ use bevy::{
     },
 };
 
-use crate::world::{map_bounds, TILE_SIZE};
+use crate::world::TILE_SIZE;
 
-const COARSE_RESOLUTION: i64 = 32_i64;
+const COARSE_RESOLUTION: i16 = 32_i16;
 
 #[derive(Resource, Default)]
 pub struct Navigation {
     allowed: Vec<Rect>,
     disallowed: Vec<Rect>,
     // todo: Instead we update the nav graph with where has been allowed or disallowed
-    nav_graph: UnGraph<I64Vec2, f32>,
+    nav_graph: UnGraph<I16Vec3, f32>,
 }
 
 impl Navigation {
@@ -24,8 +24,8 @@ impl Navigation {
         self.nav_graph.node_indices().any(|node| {
             let point = self.nav_graph[node];
             let rect = Rect::from_corners(
-                (point - COARSE_RESOLUTION).as_vec2(),
-                (point + COARSE_RESOLUTION).as_vec2(),
+                (point - COARSE_RESOLUTION).truncate().as_vec2(),
+                (point + COARSE_RESOLUTION).truncate().as_vec2(),
             );
 
             rect.contains(xy)
@@ -33,21 +33,22 @@ impl Navigation {
     }
 
     // todo(improvement): We can actually increase the resolution along the found path
-    pub fn path_between_2d(&self, start: Vec2, end: Vec2) -> Vec<Vec2> {
+    // todo(improvement): should be able to handle z
+    pub fn path_between_3d(&self, start: Vec3, end: Vec3) -> Vec<Vec3> {
         // this would be quite slow, but _probably_ faster then calculating it ad-hoc... probably?
         let graph = &self.nav_graph;
         // todo: this should ideally be the closest in the direction of travel
-        let mut closest_to_start = I64Vec2::ZERO;
-        let mut closest_to_end = I64Vec2::ZERO;
+        let mut closest_to_start = I16Vec3::ZERO;
+        let mut closest_to_end = I16Vec3::ZERO;
         let mut finish_node_opt: Option<NodeIndex> = None;
         let mut start_node_opt: Option<NodeIndex> = None;
         for node_id in graph.node_indices() {
             let point = graph[node_id];
-            if start.distance(point.as_vec2()) < start.distance(closest_to_start.as_vec2()) {
+            if start.distance(point.as_vec3()) < start.distance(closest_to_start.as_vec3()) {
                 closest_to_start = point;
                 start_node_opt = Some(node_id);
             }
-            if end.distance(point.as_vec2()) < end.distance(closest_to_end.as_vec2()) {
+            if end.distance(point.as_vec3()) < end.distance(closest_to_end.as_vec3()) {
                 closest_to_end = point;
                 finish_node_opt = Some(node_id);
             }
@@ -69,7 +70,7 @@ impl Navigation {
         ) {
             return astar_path
                 .iter()
-                .map(|node| graph[*node].as_vec2())
+                .map(|node| graph[*node].as_vec3())
                 .collect();
         } else {
             vec![]
@@ -79,14 +80,18 @@ impl Navigation {
     pub fn debug(&self, mut gizmos: Gizmos) {
         for node_id in self.nav_graph.node_indices() {
             let pos = self.nav_graph[node_id];
-            gizmos.circle_2d(pos.as_vec2(), 2., Color::WHITE);
+            gizmos.circle_2d(pos.truncate().as_vec2(), 2., Color::WHITE);
         }
         for a in self.nav_graph.node_indices() {
             for b in self.nav_graph.node_indices() {
                 if self.nav_graph.find_edge(a, b).is_some() {
                     let a_pos = self.nav_graph[a];
                     let b_pos = self.nav_graph[b];
-                    gizmos.line_2d(a_pos.as_vec2(), b_pos.as_vec2(), Color::WHITE);
+                    gizmos.line_2d(
+                        a_pos.truncate().as_vec2(),
+                        b_pos.truncate().as_vec2(),
+                        Color::WHITE,
+                    );
                 }
             }
         }
@@ -155,63 +160,63 @@ pub fn nav_graph_from_path(
     graph
 }
 
-pub fn nav_graph_from(
-    allowed: &Vec<Rect>,
-    blocked: &Vec<Rect>,
-    bounds: &Rect,
-) -> UnGraph<I64Vec2, f32> {
-    fn exclusive_contains(rect: &Rect, point: &Vec2) -> bool {
-        (point.cmpgt(rect.min) & point.cmplt(rect.max)).all()
-    }
-    // todo: Should be as big as the entity that's moving
-    let nodes = ((bounds.max.x - bounds.min.x) / COARSE_RESOLUTION as f32) as usize
-        * ((bounds.max.y - bounds.min.y) / COARSE_RESOLUTION as f32) as usize;
-    let mut graph: UnGraph<I64Vec2, f32> = Graph::with_capacity(nodes + 2, nodes + 2);
-    for x in ((bounds.min.x as i64)..(bounds.max.x as i64)).step_by(COARSE_RESOLUTION as usize) {
-        for y in ((bounds.min.y as i64)..(bounds.max.y as i64)).step_by(COARSE_RESOLUTION as usize)
-        {
-            let point = I64Vec2::new(x, y);
-            let mut found = true;
-            for allow in allowed {
-                if exclusive_contains(allow, &point.as_vec2()) {
-                    found = false;
-                }
-            }
-            for block in blocked {
-                if exclusive_contains(block, &point.as_vec2()) {
-                    found = true;
-                    break;
-                }
-            }
-            if !found {
-                graph.add_node(point);
-            }
-        }
-    }
-    let points: HashSet<_> = graph
-        .node_indices()
-        .map(|node| {
-            let point = graph[node];
-            (point.x as i64, point.y as i64, node)
-        })
-        .collect();
+// pub fn nav_graph_from(
+//     allowed: &Vec<Rect>,
+//     blocked: &Vec<Rect>,
+//     bounds: &Rect,
+// ) -> UnGraph<I16Vec3, f32> {
+//     fn exclusive_contains(rect: &Rect, point: &Vec2) -> bool {
+//         (point.cmpgt(rect.min) & point.cmplt(rect.max)).all()
+//     }
+//     // todo: Should be as big as the entity that's moving
+//     let nodes = ((bounds.max.x - bounds.min.x) / COARSE_RESOLUTION as f32) as usize
+//         * ((bounds.max.y - bounds.min.y) / COARSE_RESOLUTION as f32) as usize;
+//     let mut graph: UnGraph<I64Vec2, f32> = Graph::with_capacity(nodes + 2, nodes + 2);
+//     for x in ((bounds.min.x as i64)..(bounds.max.x as i64)).step_by(COARSE_RESOLUTION as usize) {
+//         for y in ((bounds.min.y as i64)..(bounds.max.y as i64)).step_by(COARSE_RESOLUTION as usize)
+//         {
+//             let point = I64Vec2::new(x, y);
+//             let mut found = true;
+//             for allow in allowed {
+//                 if exclusive_contains(allow, &point.as_vec2()) {
+//                     found = false;
+//                 }
+//             }
+//             for block in blocked {
+//                 if exclusive_contains(block, &point.as_vec2()) {
+//                     found = true;
+//                     break;
+//                 }
+//             }
+//             if !found {
+//                 graph.add_node(point);
+//             }
+//         }
+//     }
+//     let points: HashSet<_> = graph
+//         .node_indices()
+//         .map(|node| {
+//             let point = graph[node];
+//             (point.x as i16, point.y as i16, node)
+//         })
+//         .collect();
 
-    for (x, y, node) in points.iter() {
-        for (ox, oy, onode) in points.iter() {
-            if x == ox && y == oy || graph.contains_edge(*node, *onode) {
-                continue;
-            }
-            if (x - ox).abs() <= COARSE_RESOLUTION * 2 && (y - oy).abs() <= COARSE_RESOLUTION * 2 {
-                if x == ox || y == oy {
-                    graph.add_edge(*node, *onode, 1.);
-                    continue;
-                }
-                graph.add_edge(*node, *onode, 1.41421356237);
-            }
-        }
-    }
-    graph
-}
+//     for (x, y, node) in points.iter() {
+//         for (ox, oy, onode) in points.iter() {
+//             if x == ox && y == oy || graph.contains_edge(*node, *onode) {
+//                 continue;
+//             }
+//             if (x - ox).abs() <= COARSE_RESOLUTION * 2 && (y - oy).abs() <= COARSE_RESOLUTION * 2 {
+//                 if x == ox || y == oy {
+//                     graph.add_edge(*node, *onode, 1.);
+//                     continue;
+//                 }
+//                 graph.add_edge(*node, *onode, 1.41421356237);
+//             }
+//         }
+//     }
+//     graph
+// }
 
 // todo: For a better solution, use a nav mesh, find the points, then offset the points by the
 // normal of the two connecting lines to avoid a wonky looking path
@@ -254,14 +259,13 @@ fn setup_nav(mut pathing: ResMut<Navigation>) {}
 fn update_nav_graph_changed(
     mut navigation: ResMut<Navigation>,
     changed_nav_q: Query<
-        (&GlobalTransform, &NavSquare),
+        (Ref<GlobalTransform>, Ref<NavSquare>),
         (
             Or<(Changed<NavSquare>, Changed<GlobalTransform>)>,
             With<NavSquare>,
         ),
     >,
 ) {
-    let mut did_change = false;
     for (transform, nav_square) in &changed_nav_q {
         let position = transform.translation().truncate();
         let area = Rect::from_corners(position, position + nav_square.size);
@@ -270,11 +274,33 @@ fn update_nav_graph_changed(
         } else {
             navigation.disallowed.push(area);
         }
-        did_change = true;
-    }
-    if did_change {
-        navigation.nav_graph =
-            nav_graph_from(&navigation.allowed, &navigation.disallowed, &map_bounds());
+        if transform.is_changed() || nav_square.is_changed() {
+            let start_index = navigation
+                .nav_graph
+                .add_node(area.center().extend(0.0).as_i16vec3());
+            let start_node = navigation.nav_graph[start_index];
+            let x = start_node.x;
+            let y = start_node.y;
+            for index in navigation.nav_graph.node_indices() {
+                let node = navigation.nav_graph[index];
+                let ox = node.x;
+                let oy = node.y;
+                if x == ox && y == oy || navigation.nav_graph.contains_edge(start_index, index) {
+                    continue;
+                }
+                if (x - ox).abs() <= COARSE_RESOLUTION * 2
+                    && (y - oy).abs() <= COARSE_RESOLUTION * 2
+                {
+                    if x == ox || y == oy {
+                        navigation.nav_graph.add_edge(start_index, index, 1.);
+                        continue;
+                    }
+                    navigation
+                        .nav_graph
+                        .add_edge(start_index, index, 1.41421356237);
+                }
+            }
+        }
     }
 }
 
