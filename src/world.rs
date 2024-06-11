@@ -1007,6 +1007,7 @@ fn update_crumbs_placed_cliff(
     cliff_q: Query<(Entity, &GlobalTransform, &Elevation), (Added<Cliff>, Without<CliffLand>)>,
     assets: Res<WorldAssets>,
     land_map: Res<LandMap>,
+    tile_map: Res<TileMap>,
 ) {
     for (entity, transform, Elevation(elevation)) in &cliff_q {
         let tile_pos = (transform.translation().truncate() / TILE_VEC)
@@ -1024,6 +1025,12 @@ fn update_crumbs_placed_cliff(
             }
             if land_map.contains(*x, *y, *elevation, Land::Grass) {
                 land = Some(Land::Grass);
+            }
+            if tile_map
+                .get_elevation(*x as u16, *y as u16)
+                .is_some_and(|o_elevation| o_elevation > elevation)
+            {
+                land = None;
             }
             if let Some(Land::Grass) = land {
                 cmds.entity(entity).despawn_descendants();
@@ -1069,7 +1076,6 @@ fn update_crumbs_placed_cliff(
     }
 }
 
-// todo(blocking): fix the bug with sand next to grass next to a cliff
 fn update_added_crumbs(
     mut cmds: Commands,
     tiles_q: Query<
@@ -1078,7 +1084,7 @@ fn update_added_crumbs(
     >,
     assets: Res<WorldAssets>,
     tile_map: Res<TileMap>,
-    mut land_map: ResMut<LandMap>,
+    land_map: Res<LandMap>,
 ) {
     for (transform, Elevation(elevation), land) in &tiles_q {
         let tile_pos = (transform.translation().truncate() / TILE_VEC)
@@ -1124,9 +1130,6 @@ fn update_added_crumbs(
                                     Elevation(*elevation),
                                 ))
                                 .id();
-                            land_map
-                                .tiles
-                                .insert((*x as i16, *y as i16, *elevation, *land), grass);
                             cmds.entity(*entity).push_children(&[grass, crumbs]);
                         }
                         if let Land::Sand = land {
@@ -1147,9 +1150,6 @@ fn update_added_crumbs(
                                     Elevation(*elevation),
                                 ))
                                 .id();
-                            land_map
-                                .tiles
-                                .insert((*x as i16, *y as i16, *elevation, *land), sand);
                             cmds.entity(*entity).push_children(&[crumbs, sand]);
                         }
                     }
