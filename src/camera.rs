@@ -17,22 +17,22 @@ impl<S: States> Plugin for CameraPlugin<S> {
     fn build(&self, app: &mut App) {
         app.add_systems(
             OnTransition {
-                from: self.loading_state.clone(),
-                to: self.state.clone(),
+                exited: self.loading_state.clone(),
+                entered: self.state.clone(),
             },
             setup_game_camera,
         )
         .add_systems(
             OnTransition {
-                from: self.loading_state.clone(),
-                to: self.or_state.clone(),
+                exited: self.loading_state.clone(),
+                entered: self.or_state.clone(),
             },
             setup_game_camera,
         )
         .add_systems(
             Update,
             update_game_camera
-                .run_if(in_state(self.state.clone()).or_else(in_state(self.or_state.clone()))),
+                .run_if(in_state(self.state.clone()).or(in_state(self.or_state.clone()))),
         );
     }
 }
@@ -49,7 +49,8 @@ impl<S: States> CameraPlugin<S> {
 
 fn setup_game_camera(mut cmds: Commands) {
     cmds.spawn((
-        Camera2dBundle::default(),
+        Camera2d,
+        Msaa::Off,
         MainCamera {
             move_by_viewport_borders: true,
         },
@@ -102,7 +103,7 @@ fn update_game_camera(
                 }
             }
             camera_transform.translation -=
-                direction.extend(0.0) * time.delta_seconds() * camera_speed;
+                direction.extend(0.0) * time.delta_secs() * camera_speed;
             camera_transform.translation = camera_transform.translation.clamp(
                 rect.half_size().extend(0.0),
                 Vec3::new(
@@ -113,7 +114,7 @@ fn update_game_camera(
             );
         } else {
             camera_transform.translation -=
-                direction.extend(0.0) * time.delta_seconds() * camera_speed;
+                direction.extend(0.0) * time.delta_secs() * camera_speed;
         }
     }
 }

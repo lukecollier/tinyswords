@@ -10,12 +10,12 @@ pub const ANIMATION_SPEED: Duration = Duration::from_millis(100);
 pub struct CharacterAssets {
     #[asset(path = "factions/knights/troops/pawn/blue/pawn.png")]
     pub pawn_texture: Handle<Image>,
-    #[asset(texture_atlas_layout(tile_size_x = 192., tile_size_y = 192., columns = 6, rows = 6))]
+    #[asset(texture_atlas_layout(tile_size_x = 192, tile_size_y = 192, columns = 6, rows = 6))]
     pub pawn_layout: Handle<TextureAtlasLayout>,
 
     #[asset(path = "factions/goblins/troops/raider/red/raider_red.png")]
     pub raider_texture: Handle<Image>,
-    #[asset(texture_atlas_layout(tile_size_x = 192., tile_size_y = 192., columns = 7, rows = 6))]
+    #[asset(texture_atlas_layout(tile_size_x = 192, tile_size_y = 192, columns = 7, rows = 6))]
     pub raider_layout: Handle<TextureAtlasLayout>,
 
     #[asset(path = "deco/knights_sign.png")]
@@ -24,54 +24,41 @@ pub struct CharacterAssets {
 
 impl CharacterAssets {
     pub fn pawn(&self, xy: Vec2) -> CharacterBundle {
-        let sprite_sheet = SpriteSheetBundle {
-            sprite: Sprite {
-                flip_x: true,
-                // todo: This can be custom
-                anchor: Anchor::Custom(Vec2::new(0.0, -0.15)),
-                ..default()
-            },
-            texture: self.pawn_texture.clone(),
-            transform: Transform::from_translation(xy.extend(128.)),
-            atlas: TextureAtlas {
+        let mut sprite_sheet = Sprite::from_atlas_image(
+            self.pawn_texture.clone(),
+            TextureAtlas {
                 layout: self.pawn_layout.clone(),
                 index: 0,
             },
-            ..default()
-        };
+        );
+        sprite_sheet.flip_x = true;
+        sprite_sheet.anchor = Anchor::Custom(Vec2::new(0.0, -0.15));
         let mut animation = Animation::default();
         animation.clip_book.insert(String::from("default"), (0, 6));
         animation.clip_book.insert(String::from("walk"), (6, 11));
         animation.clip_book.insert(String::from("build"), (11, 16));
         CharacterBundle {
-            id: Character { id: 0 },
+            id: Character::Pawn,
             stats: Stats {
                 speed_in_pixels_per_second: TILE_SIZE,
             },
-            target: Goal {
-                target: Target::None,
-                path: VecDeque::new(),
-            },
+            target: Goal::default(),
+            transform: Transform::from_translation(xy.extend(128.)),
             sprite_sheet,
             animation,
         }
     }
 
     pub fn raider(&self, xy: Vec2) -> CharacterBundle {
-        let sprite_sheet = SpriteSheetBundle {
-            sprite: Sprite {
-                flip_x: true,
-                anchor: Anchor::Custom(Vec2::new(0.0, -0.15)),
-                ..default()
-            },
-            texture: self.raider_texture.clone(),
-            transform: Transform::from_translation(xy.extend(128.)),
-            atlas: TextureAtlas {
+        let mut sprite = Sprite::from_atlas_image(
+            self.raider_texture.clone(),
+            TextureAtlas {
                 layout: self.raider_layout.clone(),
                 index: 0,
             },
-            ..default()
-        };
+        );
+        sprite.flip_x = true;
+        sprite.anchor = Anchor::Custom(Vec2::new(0.0, -0.15));
         let mut animation = Animation::default();
         animation.clip_book.insert(String::from("default"), (1, 7));
         animation.clip_book.insert(String::from("walk"), (7, 13));
@@ -83,15 +70,13 @@ impl CharacterAssets {
             .clip_book
             .insert(String::from("attack_up"), (23, 28));
         CharacterBundle {
-            id: Character { id: 0 },
+            id: Character::Raider,
             stats: Stats {
                 speed_in_pixels_per_second: TILE_SIZE,
             },
-            target: Goal {
-                target: Target::None,
-                path: VecDeque::new(),
-            },
-            sprite_sheet,
+            transform: Transform::from_translation(xy.extend(128.)),
+            target: Goal::default(),
+            sprite_sheet: sprite,
             animation,
         }
     }
@@ -103,35 +88,36 @@ pub struct CharacterPlugin<S: States> {
     loading_state: S,
 }
 
-impl<S: States> Plugin for CharacterPlugin<S> {
+impl<S: States + bevy::state::state::FreelyMutableState> Plugin for CharacterPlugin<S> {
     fn build(&self, app: &mut App) {
-        app.configure_loading_state(
-            LoadingStateConfig::new(self.loading_state.clone())
-                .load_collection::<CharacterAssets>(),
-        )
-        .register_type::<Character>()
-        .register_type::<Animation>()
-        .register_type::<Stats>()
-        .register_type::<Goal>()
-        .add_systems(
-            OnTransition {
-                from: self.loading_state.clone(),
-                to: self.state.clone(),
-            },
-            setup_characters,
-        )
-        .add_systems(
-            OnTransition {
-                from: self.loading_state.clone(),
-                to: self.or_state.clone(),
-            },
-            setup_characters,
-        )
-        .add_systems(
-            Update,
-            (update_character_movement, update_animated_characters)
-                .run_if(in_state(self.state.clone()).or_else(in_state(self.or_state.clone()))),
-        );
+        app.register_type::<Character>()
+            .configure_loading_state(
+                LoadingStateConfig::new(self.loading_state.clone())
+                    .load_collection::<CharacterAssets>(),
+            )
+            .add_systems(
+                OnTransition {
+                    exited: self.loading_state.clone(),
+                    entered: self.state.clone(),
+                },
+                setup_characters,
+            )
+            .add_systems(
+                OnTransition {
+                    exited: self.loading_state.clone(),
+                    entered: self.or_state.clone(),
+                },
+                setup_characters,
+            )
+            .add_systems(
+                Update,
+                (
+                    update_character_movement,
+                    update_animated_characters,
+                    on_added_insert_visuals,
+                )
+                    .run_if(in_state(self.state.clone()).or(in_state(self.or_state.clone()))),
+            );
     }
 }
 
@@ -151,7 +137,7 @@ pub struct Stats {
     pub speed_in_pixels_per_second: f32,
 }
 
-#[derive(Debug, PartialEq, Clone, Reflect)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Target {
     Entity(Entity),
     // todo: Should use Vec3
@@ -165,12 +151,9 @@ impl Default for Target {
     }
 }
 
-#[derive(Component, Debug, Clone, Reflect)]
-#[reflect(Component)]
+#[derive(Component, Debug, Clone)]
 pub struct Goal {
-    #[reflect(skip_serializing)]
     pub target: Target,
-    #[reflect(skip_serializing)]
     pub path: VecDeque<Target>,
 }
 
@@ -199,13 +182,10 @@ impl Goal {
     }
 }
 
-#[derive(Component, Clone, Reflect)]
+#[derive(Component, Clone)]
 pub struct Animation {
-    #[reflect(skip_serializing)]
     timer: Timer,
-    #[reflect(skip_serializing)]
     frame: usize,
-    #[reflect(skip_serializing)]
     current_animation: String,
     clip_book: HashMap<String, (u8, u8)>,
 }
@@ -221,19 +201,52 @@ impl Default for Animation {
     }
 }
 
-#[derive(Component, Clone, Reflect)]
+#[derive(Component, Eq, PartialEq, Clone, Copy, Reflect, Debug)]
 #[reflect(Component)]
-pub struct Character {
-    pub id: u8,
+pub enum Character {
+    Pawn,
+    Raider,
+}
+impl Character {
+    pub fn bundle(&self, character_assets: &CharacterAssets, xy: Vec2) -> CharacterBundle {
+        match self {
+            Character::Pawn => character_assets.pawn(xy),
+            Character::Raider => character_assets.raider(xy),
+        }
+    }
 }
 
+fn on_added_insert_visuals(
+    mut commands: Commands,
+    query: Query<
+        (Entity, &Character, &Transform),
+        (Added<Character>, Without<Sprite>, Without<Animation>),
+    >,
+    assets: Res<CharacterAssets>,
+) {
+    for (entity, character, transform) in &query {
+        let bundle = character.bundle(&assets, transform.translation.truncate());
+        commands
+            .entity(entity)
+            .insert((bundle.sprite_sheet, bundle.animation));
+    }
+}
+
+// todo: Deprecate and move to require macro
 #[derive(Bundle, Clone)]
 pub struct CharacterBundle {
     pub id: Character,
     pub stats: Stats,
     pub target: Goal,
-    pub sprite_sheet: SpriteSheetBundle,
+    pub sprite_sheet: Sprite,
+    pub transform: Transform,
     pub animation: Animation,
+}
+
+#[derive(Bundle, Clone)]
+pub struct AnimatedSprite {
+    pub animation: Animation,
+    pub sprite_sheet: Sprite,
 }
 
 impl CharacterBundle {}
@@ -286,19 +299,24 @@ fn update_character_movement(
 }
 
 fn update_animated_characters(
-    mut animated_q: Query<(&mut TextureAtlas, &mut Animation)>,
+    mut animated_q: Query<(&mut Sprite, &mut Animation)>,
     time: Res<Time>,
 ) {
-    for (mut texture_atlas, mut animated) in &mut animated_q {
-        if animated.frame > usize::MAX {
-            animated.frame = 0;
-        }
-        animated.timer.tick(time.delta());
-        if animated.timer.finished() {
-            animated.frame += 1;
-        }
-        if let Some((lower, upper)) = animated.clip_book.get(&animated.current_animation).clone() {
-            texture_atlas.index = *lower as usize + (animated.frame % (*upper - *lower) as usize);
+    for (mut sprite, mut animated) in &mut animated_q {
+        if let Some(ref mut texture_atlas) = sprite.texture_atlas {
+            if animated.frame > usize::MAX {
+                animated.frame = 0;
+            }
+            animated.timer.tick(time.delta());
+            if animated.timer.finished() {
+                animated.frame += 1;
+            }
+            if let Some((lower, upper)) =
+                animated.clip_book.get(&animated.current_animation).clone()
+            {
+                texture_atlas.index =
+                    *lower as usize + (animated.frame % (*upper - *lower) as usize);
+            }
         }
     }
 }

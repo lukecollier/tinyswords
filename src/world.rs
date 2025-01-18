@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
-use bevy::sprite::{Material2d, Material2dPlugin, MaterialMesh2dBundle};
+use bevy::sprite::{Material2d, Material2dPlugin};
 use bevy::utils::hashbrown::HashMap;
 /**
  * This is the plugin for the world, it's animations, and creating blocking
@@ -107,13 +107,13 @@ pub struct WorldAssets {
     #[asset(path = "terrain/ground/shadow.png")]
     pub shadow_texture: Handle<Image>,
 
-    #[asset(texture_atlas_layout(tile_size_x = 192., tile_size_y = 192., columns = 8, rows = 1))]
+    #[asset(texture_atlas_layout(tile_size_x = 192, tile_size_y = 192, columns = 8, rows = 1))]
     pub coast_layout: Handle<TextureAtlasLayout>,
 
     #[asset(path = "terrain/ground/tilemap_sand.png")]
     pub sand_texture: Handle<Image>,
 
-    #[asset(texture_atlas_layout(tile_size_x = 64., tile_size_y = 64., columns = 5, rows = 4))]
+    #[asset(texture_atlas_layout(tile_size_x = 64, tile_size_y = 64, columns = 5, rows = 4))]
     pub land_layout: Handle<TextureAtlasLayout>,
 
     #[asset(path = "terrain/ground/tilemap_grass.png")]
@@ -122,7 +122,7 @@ pub struct WorldAssets {
     #[asset(path = "terrain/ground/tilemap_cliff.png")]
     pub cliff_texture: Handle<Image>,
 
-    #[asset(texture_atlas_layout(tile_size_x = 64., tile_size_y = 64., columns = 4, rows = 7))]
+    #[asset(texture_atlas_layout(tile_size_x = 64, tile_size_y = 64, columns = 4, rows = 7))]
     pub cliff_layout: Handle<TextureAtlasLayout>,
 }
 
@@ -277,115 +277,99 @@ impl WorldAssets {
         }
     }
 
-    fn shadow(&self, xy: Vec2, z: f32) -> SpriteSheetBundle {
+    fn shadow(&self) -> Sprite {
         let texture = self.shadow_texture.clone();
-        SpriteSheetBundle {
-            sprite: Sprite {
-                anchor: Anchor::Center,
-                ..default()
-            },
-            texture,
-            transform: Transform::from_translation(xy.extend(z)),
-            ..default()
-        }
+        let mut sprite = Sprite::from_image(texture);
+        sprite.anchor = Anchor::Center;
+        sprite
     }
 
-    fn coast(&self, xy: Vec2, z: f32) -> SpriteSheetBundle {
+    fn coast(&self) -> Sprite {
         let texture = self.coast_texture.clone();
         let layout = self.coast_layout.clone();
-        SpriteSheetBundle {
-            sprite: Sprite {
-                anchor: Anchor::Center,
-                ..default()
-            },
-            texture,
-            transform: Transform::from_translation(xy.extend(z)),
-            atlas: TextureAtlas { layout, index: 0 },
-            ..default()
-        }
+        let atlas= TextureAtlas {
+            layout,
+            index: 0,
+        };
+        let mut sprite = Sprite::from_atlas_image(texture, atlas);
+        sprite.anchor = Anchor::Center;
+        sprite
     }
 
-    fn cliff(&self, idx: u8, xy: Vec2, z: f32) -> SpriteSheetBundle {
+    fn cliff(&self, idx: u8) -> Sprite {
         if idx > 4 * 7 {
             panic!("out of bounds");
         }
         let layout = self.cliff_layout.clone();
         let texture = self.cliff_texture.clone();
-        SpriteSheetBundle {
-            sprite: Sprite {
-                anchor: Anchor::BottomLeft,
-                ..default()
-            },
-            texture,
-            transform: Transform::from_translation(xy.extend(z)),
-            atlas: TextureAtlas {
-                layout,
-                index: idx as usize,
-            },
-            ..default()
-        }
+        let atlas= TextureAtlas {
+            layout,
+            index: idx as usize,
+        };
+        let mut sprite = Sprite::from_atlas_image(texture, atlas);
+        sprite.anchor = Anchor::BottomLeft;
+        sprite
     }
-    fn grass(&self, xy: Vec2, z: f32) -> SpriteSheetBundle {
+
+    fn grass(&self) -> Sprite {
         let layout = self.land_layout.clone();
         let texture = self.grass_texture.clone();
-        SpriteSheetBundle {
-            sprite: Sprite {
-                anchor: Anchor::BottomLeft,
-                ..default()
-            },
-            texture,
-            transform: Transform::from_translation(xy.extend(z)),
-            atlas: TextureAtlas {
-                layout,
-                index: WorldAssets::ISOLATE as usize,
-            },
-            ..default()
-        }
+        let atlas= TextureAtlas {
+            layout,
+            index: WorldAssets::ISOLATE as usize,
+        };
+        let mut sprite = Sprite::from_atlas_image(texture, atlas);
+        sprite.anchor = Anchor::BottomLeft;
+        sprite
     }
-    fn sand(&self, xy: Vec2, z: f32) -> SpriteSheetBundle {
+
+    fn sand(&self) -> Sprite {
         let layout = self.land_layout.clone();
         let texture = self.sand_texture.clone();
-        SpriteSheetBundle {
-            sprite: Sprite {
-                anchor: Anchor::BottomLeft,
-                ..default()
-            },
-            texture,
-            transform: Transform::from_translation(xy.extend(z)),
-            atlas: TextureAtlas {
-                layout,
-                index: WorldAssets::ISOLATE as usize,
-            },
-            ..default()
-        }
+        let atlas= TextureAtlas {
+            layout,
+            index: WorldAssets::ISOLATE as usize,
+        };
+        let mut sprite = Sprite::from_atlas_image(texture, atlas);
+        sprite.anchor = Anchor::BottomLeft;
+        sprite
     }
 
-    fn grass_crumbs(&self, xy: Vec2, z: f32) -> SpriteSheetBundle {
-        let mut bundle = self.grass(xy, z);
-        bundle.atlas.index = WorldAssets::CRUMBS as usize;
-        bundle
+    fn grass_crumbs(&self) -> Sprite {
+        let layout = self.land_layout.clone();
+        let texture = self.grass_texture.clone();
+        let atlas= TextureAtlas {
+            layout,
+            index: WorldAssets::CRUMBS as usize,
+        };
+        let mut sprite = Sprite::from_atlas_image(texture, atlas);
+        sprite.anchor = Anchor::BottomLeft;
+        sprite
     }
 
-    fn sand_crumbs(&self, xy: Vec2, z: f32) -> SpriteSheetBundle {
-        let mut bundle = self.sand(xy, z);
-        bundle.atlas.index = WorldAssets::CRUMBS as usize;
-        bundle
+    fn sand_crumbs(&self) -> Sprite {
+        let layout = self.land_layout.clone();
+        let texture = self.sand_texture.clone();
+        let atlas= TextureAtlas {
+            layout,
+            index: WorldAssets::CRUMBS as usize,
+        };
+        let mut sprite = Sprite::from_atlas_image(texture, atlas);
+        sprite.anchor = Anchor::BottomLeft;
+        sprite
     }
 
     fn cliff_detail(&self, cmds: &mut Commands, height: u8) -> Vec<Entity> {
         assert_ne!(height, 0);
         let wall_idx = self.cliff_index_from_bitmask(0);
-        let shadow = self.shadow(TILE_VEC * 0.5, 0.05);
+        let shadow = self.shadow();
         let platau_idx = self.platau_index_from_bitmask(WorldAssets::ISOLATE as u8);
         let mut children = vec![];
         for i in 1..=height {
-            let platau_sprite = self.cliff(
-                platau_idx as u8,
-                Vec2::Y * TILE_SIZE * i as f32,
-                0.4 + i as f32,
-            );
+            let platau_sprite = self.cliff( platau_idx as u8);
             children.push(
                 cmds.spawn((
+                    Transform::from_translation((Vec2::Y * TILE_SIZE * i as f32).extend(0.4 + i as f32)),
                     platau_sprite,
                     Platau,
                     DespawnOnElevationChange,
@@ -393,14 +377,11 @@ impl WorldAssets {
                 ))
                 .id(),
             );
-            let wall_sprite = self.cliff(
-                wall_idx as u8,
-                Vec2::Y * TILE_SIZE * (i - 1) as f32,
-                0.4 + (i - 1) as f32,
-            );
+            let wall_sprite = self.cliff(wall_idx as u8);
             children.push(
                 cmds.spawn((
                     wall_sprite,
+                    Transform::from_translation((Vec2::Y * TILE_SIZE * (i - 1) as f32).extend(0.4 + (i - 1) as f32)),
                     Cliff,
                     DespawnOnElevationChange,
                     Elevation(i - 1),
@@ -410,7 +391,7 @@ impl WorldAssets {
         }
         // todo(improvement): Shadow could work like coast lines to automatically get cleaned up
         // via changes
-        children.push(cmds.spawn((shadow, Shadow, DespawnOnElevationChange)).id());
+        children.push(cmds.spawn((shadow, Transform::from_translation((TILE_VEC * 0.5).extend(0.05)), Shadow, DespawnOnElevationChange)).id());
         children
     }
 
@@ -418,7 +399,7 @@ impl WorldAssets {
         let tile = TileBundle::new(x, y, elevation);
         cmds.spawn(tile)
             .with_children(|parent| {
-                parent.spawn((self.grass(Vec2::ZERO, 0.), Land::Grass, Elevation(0)));
+                parent.spawn((self.grass(), Transform::from_xyz(0.,0.,0.), Land::Grass, Elevation(0)));
             })
             .id()
     }
@@ -432,8 +413,9 @@ impl WorldAssets {
         let tile = TileBundle::new(x, y, elevation);
         cmds.spawn(tile)
             .with_children(|parent| {
-                let sprite = self.sand(Vec2::ZERO, 0.);
-                parent.spawn((sprite, Land::Sand, Elevation(0)));
+                let sprite  = self.sand();
+                let transform= Transform::from_translation(Vec3::ZERO);
+                parent.spawn((sprite, transform,Land::Sand, Elevation(0)));
             })
             .id()
     }
@@ -446,12 +428,12 @@ fn setup_water(
 ) {
     let width = TILE_SIZE as f32 * WORLD_SIZE.x as f32;
     let height = TILE_SIZE as f32 * WORLD_SIZE.y as f32;
-    commands.spawn(MaterialMesh2dBundle {
-        mesh: meshes.add(Rectangle::new(width, height)).into(),
-        transform: Transform::from_xyz(width / 2., height / 2., -100.),
-        material: materials.add(WaterMaterial { color: Color::BLUE }),
-        ..default()
-    });
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle::new(width, height)).into()),
+        MeshMaterial2d(materials.add(WaterMaterial { color: Color::srgb(7.5, 0.0, 7.5) })),
+        Transform::from_xyz(width / 2., height / 2., -100.)
+        )
+    );
 }
 
 fn update_meets_grass(
@@ -474,13 +456,14 @@ fn update_meets_grass(
             if sand_neighbours > 0 {
                 let sand = cmds
                     .spawn((
-                        (assets.sand(Vec2::ZERO, -0.1)),
+                        assets.sand(),
+                        Transform::from_xyz(0., 0., -0.1),
                         Land::Sand,
                         DontRegisterLand,
                         Elevation(*elevation),
                     ))
                     .id();
-                cmds.entity(entity).push_children(&[sand]);
+                cmds.entity(entity).add_children(&[sand]);
             }
             let bot_sand =
                 land_map.count_neighbours(tile_pos.x, tile_pos.y - 1, *elevation, Land::Sand);
@@ -533,13 +516,14 @@ fn update_meets_grass(
                     if let Err(_) = children.get(*bot_entity) {
                         let sand = cmds
                             .spawn((
-                                (assets.sand(Vec2::ZERO, -0.1)),
-                                Land::Sand,
-                                DontRegisterLand,
-                                Elevation(*elevation),
+                                    assets.sand(),
+                                    Transform::from_xyz(0., 0., -0.1),
+                                    Land::Sand,
+                                    DontRegisterLand,
+                                    Elevation(*elevation),
                             ))
                             .id();
-                        cmds.entity(*bot_entity).push_children(&[sand]);
+                        cmds.entity(*bot_entity).add_children(&[sand]);
                     }
                 }
             }
@@ -553,13 +537,14 @@ fn update_meets_grass(
                     if let Err(_) = children.get(*left_entity) {
                         let sand = cmds
                             .spawn((
-                                (assets.sand(Vec2::ZERO, -0.1)),
+                                assets.sand(),
+                                Transform::from_xyz(0.,0.,-0.1),
                                 Land::Sand,
                                 DontRegisterLand,
                                 Elevation(*elevation),
                             ))
                             .id();
-                        cmds.entity(*left_entity).push_children(&[sand]);
+                        cmds.entity(*left_entity).add_children(&[sand]);
                     }
                 }
             }
@@ -573,13 +558,14 @@ fn update_meets_grass(
                     if let Err(_) = children.get(*right_entity) {
                         let sand = cmds
                             .spawn((
-                                (assets.sand(Vec2::ZERO, -0.1)),
+                                assets.sand(),
+                                Transform::from_xyz(0.,0.,-0.1),
                                 Land::Sand,
                                 DontRegisterLand,
                                 Elevation(*elevation),
                             ))
                             .id();
-                        cmds.entity(*right_entity).push_children(&[sand]);
+                        cmds.entity(*right_entity).add_children(&[sand]);
                     }
                 }
 
@@ -592,13 +578,14 @@ fn update_meets_grass(
                         if let Err(_) = children.get(*bot_entity) {
                             let sand = cmds
                                 .spawn((
-                                    (assets.sand(Vec2::ZERO, -0.1)),
+                                    assets.sand(),
+                                    Transform::from_xyz(0.,0.,-0.1),
                                     Land::Sand,
                                     DontRegisterLand,
                                     Elevation(*elevation),
                                 ))
                                 .id();
-                            cmds.entity(*bot_entity).push_children(&[sand]);
+                            cmds.entity(*bot_entity).add_children(&[sand]);
                         }
                     }
                 }
@@ -622,12 +609,13 @@ fn update_coastline(
         if neighbours < 4 {
             let coast_entity = cmds
                 .spawn((
-                    world_assets.coast(TILE_VEC * 0.5, -100.0),
+                    world_assets.coast(),
+                    Transform::from_translation((TILE_VEC * 0.5).extend(-100.0)),
                     GloballyAnimated::new(7),
                     Coast,
                 ))
                 .id();
-            cmds.entity(entity).push_children(&[coast_entity]);
+            cmds.entity(entity).add_children(&[coast_entity]);
         }
 
         if tile_map.count_neighbours(x, y + 1) == 4 {
@@ -683,22 +671,22 @@ pub struct WorldPlugin<S: States> {
     loading_state: S,
 }
 
-impl<S: States> Plugin for WorldPlugin<S> {
+impl<S: States + bevy::state::state::FreelyMutableState> Plugin for WorldPlugin<S> {
     fn build(&self, app: &mut App) {
         app.configure_loading_state(
             LoadingStateConfig::new(self.loading_state.clone()).load_collection::<WorldAssets>(),
         )
         .add_systems(
             OnTransition {
-                from: self.loading_state.clone(),
-                to: self.or_state.clone(),
+                exited: self.loading_state.clone(),
+                entered: self.or_state.clone(),
             },
             (setup_tile_system, setup_water),
         )
         .add_systems(
             OnTransition {
-                from: self.loading_state.clone(),
-                to: self.state.clone(),
+                exited: self.loading_state.clone(),
+                entered: self.state.clone(),
             },
             (setup_tile_system, setup_water),
         )
@@ -732,7 +720,7 @@ impl<S: States> Plugin for WorldPlugin<S> {
                 update_animated_tiles,
                 update_tile_elevation,
             )
-                .run_if(in_state(self.state.clone()).or_else(in_state(self.or_state.clone()))),
+                .run_if(in_state(self.state.clone()).or(in_state(self.or_state.clone()))),
         );
     }
 }
@@ -764,8 +752,8 @@ impl Tile {
 pub struct TileBundle {
     pub tile: Tile,
     pub elevation: Elevation,
-    pub transform: TransformBundle,
-    pub visibility: VisibilityBundle,
+    pub transform: Transform,
+    pub visibility: Visibility,
 }
 
 impl Default for TileBundle {
@@ -773,8 +761,8 @@ impl Default for TileBundle {
         TileBundle {
             tile: Tile::new(0, 0),
             elevation: Elevation::default(),
-            visibility: VisibilityBundle::default(),
-            transform: TransformBundle::default(),
+            visibility: Visibility::default(),
+            transform: Transform::default(),
         }
     }
 }
@@ -785,15 +773,12 @@ impl TileBundle {
         TileBundle {
             tile: Tile::new(x, y),
             elevation: Elevation(elevation),
-            visibility: VisibilityBundle {
-                visibility: Visibility::Visible,
-                ..default()
-            },
-            transform: TransformBundle::from_transform(Transform::from_xyz(
+            visibility: Visibility::Visible,
+            transform: Transform::from_xyz(
                 x as f32 * TILE_SIZE,
                 y as f32 * TILE_SIZE,
                 z_offset,
-            )),
+            ),
             ..default()
         }
     }
@@ -811,7 +796,7 @@ impl GloballyAnimated {
 }
 
 fn update_animated_tiles(
-    mut animated_q: Query<(&mut TextureAtlas, &mut GloballyAnimated)>,
+    mut animated_q: Query<(&mut Sprite, &mut GloballyAnimated)>,
     time: Res<Time>,
     mut global_animation: ResMut<GlobalAnimation>,
 ) {
@@ -821,8 +806,8 @@ fn update_animated_tiles(
     global_animation.timer.tick(time.delta());
     if global_animation.timer.finished() {
         global_animation.frame += 1;
-        for (mut texture_atlas, animated) in &mut animated_q {
-            texture_atlas.index = global_animation.frame % animated.max_frames as usize;
+        for (mut sprite, animated) in &mut animated_q {
+            sprite.texture_atlas.as_mut().unwrap().index = global_animation.frame % animated.max_frames as usize;
         }
     }
 }
@@ -996,7 +981,7 @@ fn update_tile_elevation(
                     });
                 }
                 let details = assets.cliff_detail(&mut cmds, elevation.0);
-                cmds.entity(entity).push_children(&details);
+                cmds.entity(entity).add_children(&details);
             }
         }
     }
@@ -1036,7 +1021,8 @@ fn update_crumbs_placed_cliff(
                 cmds.entity(entity).despawn_descendants();
                 let crumbs = cmds
                     .spawn((
-                        (assets.grass_crumbs(Vec2::ZERO, 0.7)),
+                        assets.grass_crumbs(),
+                        Transform::from_xyz(0.,0., 0.7),
                         Crumbs,
                         CliffLand,
                         Elevation(*elevation),
@@ -1044,19 +1030,21 @@ fn update_crumbs_placed_cliff(
                     .id();
                 let grass = cmds
                     .spawn((
-                        (assets.grass(Vec2::ZERO, -0.1)),
+                        assets.grass(),
+                        Transform::from_xyz(0.,0., -0.1),
                         Land::Grass,
                         CliffLand,
                         Elevation(*elevation),
                     ))
                     .id();
-                cmds.entity(entity).push_children(&[grass, crumbs]);
+                cmds.entity(entity).add_children(&[grass, crumbs]);
             }
             if let Some(Land::Sand) = land {
                 cmds.entity(entity).despawn_descendants();
                 let crumbs = cmds
                     .spawn((
-                        (assets.sand_crumbs(Vec2::ZERO, 0.6)),
+                        assets.sand_crumbs(),
+                        Transform::from_xyz(0.,0.,0.6),
                         Crumbs,
                         CliffLand,
                         Elevation(*elevation),
@@ -1064,13 +1052,14 @@ fn update_crumbs_placed_cliff(
                     .id();
                 let sand = cmds
                     .spawn((
-                        (assets.sand(Vec2::ZERO, -0.1)),
+                        assets.sand(),
+                        Transform::from_xyz(0.,0.,-0.1),
                         Land::Sand,
                         CliffLand,
                         Elevation(*elevation),
                     ))
                     .id();
-                cmds.entity(entity).push_children(&[crumbs, sand]);
+                cmds.entity(entity).add_children(&[crumbs, sand]);
             }
         }
     }
@@ -1115,7 +1104,8 @@ fn update_added_crumbs(
                         if let Land::Grass = land {
                             let crumbs = cmds
                                 .spawn((
-                                    (assets.grass_crumbs(Vec2::ZERO, 0.7)),
+                                    assets.grass_crumbs(),
+                                    Transform::from_xyz(0.,0., 0.7),
                                     Crumbs,
                                     CliffLand,
                                     DontRegisterLand,
@@ -1124,18 +1114,20 @@ fn update_added_crumbs(
                                 .id();
                             let grass = cmds
                                 .spawn((
-                                    (assets.grass(Vec2::ZERO, -0.1)),
+                                    assets.grass(),
+                                    Transform::from_xyz(0.,0., -0.1),
                                     Land::Grass,
                                     CliffLand,
                                     Elevation(*elevation),
                                 ))
                                 .id();
-                            cmds.entity(*entity).push_children(&[grass, crumbs]);
+                            cmds.entity(*entity).add_children(&[grass, crumbs]);
                         }
                         if let Land::Sand = land {
                             let crumbs = cmds
                                 .spawn((
-                                    (assets.sand_crumbs(Vec2::ZERO, 0.6)),
+                                    assets.sand_crumbs(),
+                                    Transform::from_xyz(0.,0., 0.6),
                                     Crumbs,
                                     CliffLand,
                                     DontRegisterLand,
@@ -1144,13 +1136,14 @@ fn update_added_crumbs(
                                 .id();
                             let sand = cmds
                                 .spawn((
-                                    (assets.sand(Vec2::ZERO, -0.1)),
+                                    assets.sand(),
+                                    Transform::from_xyz(0.,0., -0.1),
                                     Land::Sand,
                                     CliffLand,
                                     Elevation(*elevation),
                                 ))
                                 .id();
-                            cmds.entity(*entity).push_children(&[crumbs, sand]);
+                            cmds.entity(*entity).add_children(&[crumbs, sand]);
                         }
                     }
                 }
@@ -1160,7 +1153,7 @@ fn update_added_crumbs(
 }
 
 fn update_added_land_atlas_index(
-    mut tiles_q: Query<(&mut TextureAtlas, &GlobalTransform, &Elevation, Ref<Land>)>,
+    mut tiles_q: Query<(&mut Sprite, &GlobalTransform, &Elevation, Ref<Land>)>,
     assets: Res<WorldAssets>,
 ) {
     let mut tiles: HashMap<(i16, i16, Elevation, Land), bool> =
@@ -1171,48 +1164,51 @@ fn update_added_land_atlas_index(
             .as_i16vec2();
         tiles.insert((tile_pos.x, tile_pos.y, *elevation, *land), land.is_added());
     }
-    for (mut atlas, transform, elevation, land) in &mut tiles_q {
-        let tile_pos = (transform.translation().truncate() / TILE_VEC)
-            .floor()
-            .as_i16vec2();
-        if land.is_added() {
-            let mut bitmask_total = 0;
-            bitmask_total += tiles.contains_key(&(tile_pos.x, tile_pos.y + 1, *elevation, *land))
-                as u8
-                * 2_u8.pow(0);
-            bitmask_total += tiles.contains_key(&(tile_pos.x - 1, tile_pos.y, *elevation, *land))
-                as u8
-                * 2_u8.pow(1);
-            bitmask_total += tiles.contains_key(&(tile_pos.x + 1, tile_pos.y, *elevation, *land))
-                as u8
-                * 2_u8.pow(2);
-            bitmask_total += tiles.contains_key(&(tile_pos.x, tile_pos.y - 1, *elevation, *land))
-                as u8
-                * 2_u8.pow(3);
-            atlas.index = assets.index_from_bitmask(bitmask_total as u8);
-        } else {
-            if let Some(true) = tiles.get(&(tile_pos.x, tile_pos.y - 1, *elevation, *land)) {
-                let bitmask_up = assets.bitmask_from_index(atlas.index) + BITMASK_BOT;
-                atlas.index = assets.index_from_bitmask(bitmask_up);
-            }
-            if let Some(true) = tiles.get(&(tile_pos.x + 1, tile_pos.y, *elevation, *land)) {
-                let bitmask_left = assets.bitmask_from_index(atlas.index) + BITMASK_RIGHT;
-                atlas.index = assets.index_from_bitmask(bitmask_left);
-            }
-            if let Some(true) = tiles.get(&(tile_pos.x - 1, tile_pos.y, *elevation, *land)) {
-                let bitmask_right = assets.bitmask_from_index(atlas.index) + BITMASK_LEFT;
-                atlas.index = assets.index_from_bitmask(bitmask_right);
-            }
-            if let Some(true) = tiles.get(&(tile_pos.x, tile_pos.y + 1, *elevation, *land)) {
-                let bitmask_down = assets.bitmask_from_index(atlas.index) + BITMASK_TOP;
-                atlas.index = assets.index_from_bitmask(bitmask_down);
+    for (mut sprite, transform, elevation, land) in &mut tiles_q {
+        if let Some(ref mut atlas) = &mut sprite.texture_atlas {
+            let tile_pos = (transform.translation().truncate() / TILE_VEC)
+                .floor()
+                .as_i16vec2();
+            if land.is_added() {
+                let mut bitmask_total = 0;
+                bitmask_total += tiles.contains_key(&(tile_pos.x, tile_pos.y + 1, *elevation, *land))
+                    as u8
+                    * 2_u8.pow(0);
+                bitmask_total += tiles.contains_key(&(tile_pos.x - 1, tile_pos.y, *elevation, *land))
+                    as u8
+                    * 2_u8.pow(1);
+                bitmask_total += tiles.contains_key(&(tile_pos.x + 1, tile_pos.y, *elevation, *land))
+                    as u8
+                    * 2_u8.pow(2);
+                bitmask_total += tiles.contains_key(&(tile_pos.x, tile_pos.y - 1, *elevation, *land))
+                    as u8
+                    * 2_u8.pow(3);
+                atlas.index = assets.index_from_bitmask(bitmask_total as u8);
+            } else {
+                if let Some(true) = tiles.get(&(tile_pos.x, tile_pos.y - 1, *elevation, *land)) {
+                    let bitmask_up = assets.bitmask_from_index(atlas.index) + BITMASK_BOT;
+                    atlas.index = assets.index_from_bitmask(bitmask_up);
+                }
+                if let Some(true) = tiles.get(&(tile_pos.x + 1, tile_pos.y, *elevation, *land)) {
+                    let bitmask_left = assets.bitmask_from_index(atlas.index) + BITMASK_RIGHT;
+                    atlas.index = assets.index_from_bitmask(bitmask_left);
+                }
+                if let Some(true) = tiles.get(&(tile_pos.x - 1, tile_pos.y, *elevation, *land)) {
+                    let bitmask_right = assets.bitmask_from_index(atlas.index) + BITMASK_LEFT;
+                    atlas.index = assets.index_from_bitmask(bitmask_right);
+                }
+                if let Some(true) = tiles.get(&(tile_pos.x, tile_pos.y + 1, *elevation, *land)) {
+                    let bitmask_down = assets.bitmask_from_index(atlas.index) + BITMASK_TOP;
+                    atlas.index = assets.index_from_bitmask(bitmask_down);
+                }
+
             }
         }
     }
 }
 
 fn update_changed_cliff_atlas_index(
-    mut tiles_q: Query<(&mut TextureAtlas, &GlobalTransform, &Elevation, Ref<Cliff>)>,
+    mut tiles_q: Query<(&mut Sprite, &GlobalTransform, &Elevation, Ref<Cliff>)>,
     assets: Res<WorldAssets>,
 ) {
     let mut tiles: HashMap<(i16, i16, Elevation, Cliff), bool> =
@@ -1228,34 +1224,36 @@ fn update_changed_cliff_atlas_index(
         );
     }
     // we then use the coordinates to get a map of the neighbours and their land type
-    for (mut atlas, transform, elevation, cliff) in &mut tiles_q {
-        let tile_pos = (transform.translation().truncate() / TILE_VEC)
-            .floor()
-            .as_i16vec2();
-        if cliff.is_added() {
-            let mut bitmask_total = 0;
-            bitmask_total += tiles.contains_key(&(tile_pos.x - 1, tile_pos.y, *elevation, *cliff))
-                as u8
-                * 2_u8.pow(0);
-            bitmask_total += tiles.contains_key(&(tile_pos.x + 1, tile_pos.y, *elevation, *cliff))
-                as u8
-                * 2_u8.pow(1);
-            atlas.index = assets.cliff_index_from_bitmask(bitmask_total as u8);
-        } else {
-            if let Some(true) = tiles.get(&(tile_pos.x - 1, tile_pos.y, *elevation, *cliff)) {
-                let bitmask_left = assets.bitmask_from_cliff_index(atlas.index) + 1;
-                atlas.index = assets.cliff_index_from_bitmask(bitmask_left);
-            }
-            if let Some(true) = tiles.get(&(tile_pos.x + 1, tile_pos.y, *elevation, *cliff)) {
-                let bitmask_right = assets.bitmask_from_cliff_index(atlas.index) + 2;
-                atlas.index = assets.cliff_index_from_bitmask(bitmask_right);
+    for (mut sprite, transform, elevation, cliff) in &mut tiles_q {
+        if let Some(ref mut atlas) = &mut sprite.texture_atlas {
+            let tile_pos = (transform.translation().truncate() / TILE_VEC)
+                .floor()
+                .as_i16vec2();
+            if cliff.is_added() {
+                let mut bitmask_total = 0;
+                bitmask_total += tiles.contains_key(&(tile_pos.x - 1, tile_pos.y, *elevation, *cliff))
+                    as u8
+                    * 2_u8.pow(0);
+                bitmask_total += tiles.contains_key(&(tile_pos.x + 1, tile_pos.y, *elevation, *cliff))
+                    as u8
+                    * 2_u8.pow(1);
+                atlas.index = assets.cliff_index_from_bitmask(bitmask_total as u8);
+            } else {
+                if let Some(true) = tiles.get(&(tile_pos.x - 1, tile_pos.y, *elevation, *cliff)) {
+                    let bitmask_left = assets.bitmask_from_cliff_index(atlas.index) + 1;
+                    atlas.index = assets.cliff_index_from_bitmask(bitmask_left);
+                }
+                if let Some(true) = tiles.get(&(tile_pos.x + 1, tile_pos.y, *elevation, *cliff)) {
+                    let bitmask_right = assets.bitmask_from_cliff_index(atlas.index) + 2;
+                    atlas.index = assets.cliff_index_from_bitmask(bitmask_right);
+                }
             }
         }
     }
 }
 
 fn update_changed_platau_atlas_index(
-    mut tiles_q: Query<(&mut TextureAtlas, &GlobalTransform, &Elevation, Ref<Platau>)>,
+    mut tiles_q: Query<(&mut Sprite, &GlobalTransform, &Elevation, Ref<Platau>)>,
     assets: Res<WorldAssets>,
 ) {
     // todo: Cache using a Local<T> resoruce
@@ -1272,41 +1270,43 @@ fn update_changed_platau_atlas_index(
         );
     }
     // we then use the coordinates to get a map of the neighbours and their land type
-    for (mut atlas, transform, elevation, platau) in &mut tiles_q {
-        let tile_pos = (transform.translation().truncate() / TILE_VEC)
-            .floor()
-            .as_i16vec2();
-        if platau.is_added() {
-            let mut bitmask_total = 0;
-            bitmask_total += tiles.contains_key(&(tile_pos.x, tile_pos.y + 1, *elevation, *platau))
-                as u8
-                * 2_u8.pow(0);
-            bitmask_total += tiles.contains_key(&(tile_pos.x - 1, tile_pos.y, *elevation, *platau))
-                as u8
-                * 2_u8.pow(1);
-            bitmask_total += tiles.contains_key(&(tile_pos.x + 1, tile_pos.y, *elevation, *platau))
-                as u8
-                * 2_u8.pow(2);
-            bitmask_total += tiles.contains_key(&(tile_pos.x, tile_pos.y - 1, *elevation, *platau))
-                as u8
-                * 2_u8.pow(3);
-            atlas.index = assets.platau_index_from_bitmask(bitmask_total as u8);
-        } else {
-            if let Some(true) = tiles.get(&(tile_pos.x, tile_pos.y - 1, *elevation, *platau)) {
-                let bitmask_up = assets.bitmask_from_platau_index(atlas.index) + BITMASK_BOT;
-                atlas.index = assets.platau_index_from_bitmask(bitmask_up);
-            }
-            if let Some(true) = tiles.get(&(tile_pos.x + 1, tile_pos.y, *elevation, *platau)) {
-                let bitmask_left = assets.bitmask_from_platau_index(atlas.index) + BITMASK_RIGHT;
-                atlas.index = assets.platau_index_from_bitmask(bitmask_left);
-            }
-            if let Some(true) = tiles.get(&(tile_pos.x - 1, tile_pos.y, *elevation, *platau)) {
-                let bitmask_right = assets.bitmask_from_platau_index(atlas.index) + BITMASK_LEFT;
-                atlas.index = assets.platau_index_from_bitmask(bitmask_right);
-            }
-            if let Some(true) = tiles.get(&(tile_pos.x, tile_pos.y + 1, *elevation, *platau)) {
-                let bitmask_down = assets.bitmask_from_platau_index(atlas.index) + BITMASK_TOP;
-                atlas.index = assets.platau_index_from_bitmask(bitmask_down);
+    for (mut sprite, transform, elevation, platau) in &mut tiles_q {
+        if let Some(ref mut atlas) = &mut sprite.texture_atlas {
+            let tile_pos = (transform.translation().truncate() / TILE_VEC)
+                .floor()
+                .as_i16vec2();
+            if platau.is_added() {
+                let mut bitmask_total = 0;
+                bitmask_total += tiles.contains_key(&(tile_pos.x, tile_pos.y + 1, *elevation, *platau))
+                    as u8
+                    * 2_u8.pow(0);
+                bitmask_total += tiles.contains_key(&(tile_pos.x - 1, tile_pos.y, *elevation, *platau))
+                    as u8
+                    * 2_u8.pow(1);
+                bitmask_total += tiles.contains_key(&(tile_pos.x + 1, tile_pos.y, *elevation, *platau))
+                    as u8
+                    * 2_u8.pow(2);
+                bitmask_total += tiles.contains_key(&(tile_pos.x, tile_pos.y - 1, *elevation, *platau))
+                    as u8
+                    * 2_u8.pow(3);
+                atlas.index = assets.platau_index_from_bitmask(bitmask_total as u8);
+            } else {
+                if let Some(true) = tiles.get(&(tile_pos.x, tile_pos.y - 1, *elevation, *platau)) {
+                    let bitmask_up = assets.bitmask_from_platau_index(atlas.index) + BITMASK_BOT;
+                    atlas.index = assets.platau_index_from_bitmask(bitmask_up);
+                }
+                if let Some(true) = tiles.get(&(tile_pos.x + 1, tile_pos.y, *elevation, *platau)) {
+                    let bitmask_left = assets.bitmask_from_platau_index(atlas.index) + BITMASK_RIGHT;
+                    atlas.index = assets.platau_index_from_bitmask(bitmask_left);
+                }
+                if let Some(true) = tiles.get(&(tile_pos.x - 1, tile_pos.y, *elevation, *platau)) {
+                    let bitmask_right = assets.bitmask_from_platau_index(atlas.index) + BITMASK_LEFT;
+                    atlas.index = assets.platau_index_from_bitmask(bitmask_right);
+                }
+                if let Some(true) = tiles.get(&(tile_pos.x, tile_pos.y + 1, *elevation, *platau)) {
+                    let bitmask_down = assets.bitmask_from_platau_index(atlas.index) + BITMASK_TOP;
+                    atlas.index = assets.platau_index_from_bitmask(bitmask_down);
+                }
             }
         }
     }

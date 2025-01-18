@@ -1,11 +1,16 @@
+use std::{fs::File, io::Write, path::PathBuf};
+
 use crate::{
     camera::MainCamera,
-    characters::{Character, CharacterAssets, CharacterBundle},
+    characters::{Character, CharacterAssets},
     nav::{NavBundle, Navigation},
     world::{TileMap, WorldAssets, TILE_SIZE, TILE_VEC, WORLD_SIZE},
     GameState,
 };
-use bevy::{prelude::*, render::camera::Viewport};
+use bevy::{
+    asset::io::embedded::EmbeddedAssetRegistry, prelude::*, render::camera::Viewport,
+    scene::SceneInstanceReady,
+};
 use bevy_asset_loader::prelude::*;
 use bevy_egui::{
     egui::{self, text::LayoutJob},
@@ -34,7 +39,7 @@ pub struct EditorAssets {
 #[derive(Eq, PartialEq)]
 enum BrushType {
     Terrain(Terrain),
-    Character(CharacterTemplate),
+    Character(Character),
     None,
 }
 
@@ -110,14 +115,17 @@ fn update_place_character(
     mut cmds: Commands,
     window_q: Query<&Window>,
     mut camera_q: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    mut character_shadow_q: Query<(Entity, &mut Transform, &mut Sprite), With<CharacterShadow>>,
+    mut character_shadow_q: Query<
+        (Entity, &Character, &mut Transform, &mut Sprite),
+        With<CharacterShadow>,
+    >,
     mouse_button: Res<ButtonInput<MouseButton>>,
     options: ResMut<EditorOptions>,
     pathing: Res<Navigation>,
     character_assets: Res<CharacterAssets>,
 ) {
     if !options.brush.is_character() || options.is_mouse_on_ui {
-        for (entity, _, _) in &character_shadow_q {
+        for (entity, _, _, _) in &character_shadow_q {
             if let Some(response) = cmds.get_entity(entity) {
                 response.despawn_recursive();
             }
@@ -135,7 +143,7 @@ fn update_place_character(
                     // so when we deal with the actual world we need to add the offset
                     top_offset_logical_pixels = window.height() - logical_rect.height();
                     if !logical_rect.contains(cursor_pos) {
-                        for (entity, _, _) in &character_shadow_q {
+                        for (entity, _, _, _) in &character_shadow_q {
                             if let Some(response) = cmds.get_entity(entity) {
                                 response.despawn_recursive();
                             }
@@ -143,19 +151,19 @@ fn update_place_character(
                         break;
                     };
                 };
-                if let Some(world_cursor_pos) =
+                if let Ok(world_cursor_pos) =
                     camera.viewport_to_world_2d(camera_transform, cursor_pos)
                 {
                     match character_shadow_q.get_single_mut() {
-                        Ok((_, mut transform, mut sprite)) => {
+                        Ok((_, _, mut transform, mut sprite)) => {
                             *transform = Transform::from_translation(
                                 (world_cursor_pos + Vec2::Y * top_offset_logical_pixels)
                                     .extend(transform.translation.z),
                             );
                             if pathing.is_walkable(transform.translation.truncate()) {
-                                sprite.color = Color::rgba_linear_from_array([1., 1., 1., 0.5]);
+                                sprite.color = Color::linear_rgba(1., 1., 1., 0.5);
                             } else {
-                                sprite.color = Color::rgba_linear_from_array([1., 0., 0., 0.5]);
+                                sprite.color = Color::linear_rgba(1., 0., 0., 0.5);
                             }
                         }
                         Err(bevy::ecs::query::QuerySingleError::NoEntities(_)) => {
@@ -164,8 +172,9 @@ fn update_place_character(
                                     let character =
                                         template.bundle(&character_assets, world_cursor_pos);
                                     cmds.spawn((
-                                        character,
+                                        Transform::from_translation(world_cursor_pos.extend(100.)),
                                         template.clone(),
+                                        character.sprite_sheet,
                                         CharacterShadow,
                                         EditorOnly,
                                     ));
@@ -174,7 +183,7 @@ fn update_place_character(
                             };
                         }
                         Err(bevy::ecs::query::QuerySingleError::MultipleEntities(_)) => {
-                            for (entity, _, _) in &character_shadow_q {
+                            for (entity, _, _, _) in &character_shadow_q {
                                 if let Some(response) = cmds.get_entity(entity) {
                                     response.despawn_recursive();
                                 }
@@ -182,16 +191,15 @@ fn update_place_character(
                         }
                     };
                     if mouse_button.just_pressed(MouseButton::Left) {
-                        for (entity, transform, mut sprite) in &mut character_shadow_q {
+                        for (_, template, transform, _) in &mut character_shadow_q {
                             if pathing.is_walkable(
                                 transform.translation.truncate()
                                     + Vec2::Y * top_offset_logical_pixels,
                             ) {
-                                if let Some(mut response) = cmds.get_entity(entity) {
-                                    sprite.color = Color::WHITE;
-                                    response.remove::<CharacterShadow>();
-                                    response.remove::<EditorOnly>();
-                                }
+                                cmds.spawn((template.bundle(
+                                    &character_assets,
+                                    world_cursor_pos + Vec2::Y * top_offset_logical_pixels,
+                                ),));
                             }
                         }
                     }
@@ -229,24 +237,20 @@ fn update_place_terrain(
                 break;
             };
         };
-        let Some(world_cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos)
-        else {
+        let Ok(world_cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else {
             return;
         };
         let tile_pos = ((world_cursor_pos + Vec2::Y * top_offset_logical_pixels) / TILE_VEC)
             .floor()
             .as_u16vec2();
-        let mut selected_elevation: &u8 =
-            tile_map.get_elevation(tile_pos.x, tile_pos.y).unwrap_or(&0);
 
         // todo(improvement): Should be two squares, one at elevation 0 and one at the selected
         // elevation
         gizmos.rect_2d(
             tile_pos.as_vec2() * TILE_VEC + (TILE_VEC / 2.0)
                 - (Vec2::Y * options.brush_size as f32) / 2.0,
-            0.0,
             TILE_VEC * Vec2::new(1.0, 1.0 as f32) * options.brush_size as f32,
-            Color::GREEN,
+            bevy::color::palettes::css::GREEN,
         );
 
         if mouse_button.pressed(MouseButton::Left) {
@@ -407,21 +411,6 @@ enum Terrain {
     Steps,
 }
 
-#[derive(Component, Eq, PartialEq, Clone, Copy)]
-enum CharacterTemplate {
-    Pawn,
-    Raider,
-}
-
-impl CharacterTemplate {
-    fn bundle(&self, character_assets: &CharacterAssets, xy: Vec2) -> CharacterBundle {
-        match self {
-            CharacterTemplate::Pawn => character_assets.pawn(xy),
-            CharacterTemplate::Raider => character_assets.raider(xy),
-        }
-    }
-}
-
 fn cleanup_entities_on_exit(mut cmds: Commands, cleanup_q: Query<Entity, With<EditorOnly>>) {
     for cleanup_entity in &cleanup_q {
         if let Some(found_entity) = cmds.get_entity(cleanup_entity) {
@@ -430,31 +419,44 @@ fn cleanup_entities_on_exit(mut cmds: Commands, cleanup_q: Query<Entity, With<Ed
     }
 }
 
-fn save_scene(world: &mut World, mut store: ResMut<EditorWorld>) {
-    let mut characters = world.query_filtered::<Entity, With<Character>>();
-    let scene = DynamicSceneBuilder::from_world(world)
-        .extract_entities(characters.iter(&world))
-        .build();
-    let type_registry = world.resource::<AppTypeRegistry>();
-    let ron_scene = scene.serialize_ron(&type_registry);
+// will error on first usage
+fn load_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let root = DynamicSceneRoot(asset_server.load("embedded://scenes/editor.scn.ron"));
+    commands.spawn(root);
 }
 
-fn store_on_exit(
-    mut cmds: Commands,
-    mut store: ResMut<EditorWorld>,
-    characters_q: Query<(Entity, &CharacterTemplate, &GlobalTransform)>,
-    assets: Res<CharacterAssets>,
-) {
-    let c = characters_q.iter().collect::<Vec<_>>();
-    store.characters = c
-        .into_iter()
-        .map(|(_, c, t)| (c.bundle(&assets, t.translation().truncate()), c.clone()))
-        .collect();
-    for (character_entity, _, _) in &characters_q {
-        if let Some(mut found_entity) = cmds.get_entity(character_entity) {
-            found_entity.remove::<CharacterTemplate>();
-        }
-    }
+// todo: we can store the scene in memory while editing and offer a different option for saving to
+// a file.
+fn store_scene(world: &mut World) {
+    let mut characters = world.query_filtered::<Entity, (With<Character>, Without<EditorOnly>)>();
+    let scene = DynamicSceneBuilder::from_world(world)
+        .deny_all_components()
+        .allow_component::<Character>()
+        .allow_component::<Transform>()
+        .extract_entities(characters.iter(&world))
+        .build();
+    let type_registry = world.resource::<AppTypeRegistry>().clone();
+    let type_registry = type_registry.read();
+    let serialized_scene = scene.serialize(&type_registry).unwrap();
+    let other_scene = serialized_scene.clone();
+    // Writing the scene to a new file. Using a task to avoid calling the filesystem APIs in a system
+    // as they are blocking
+    // This can't work in Wasm as there is no filesystem access
+    #[cfg(not(target_arch = "wasm32"))]
+    bevy::tasks::IoTaskPool::get()
+        .spawn(async move {
+            // Write the scene RON data to file
+            File::create(format!("assets/temp.scn.ron"))
+                .and_then(|mut file| file.write(serialized_scene.as_bytes()))
+                .expect("Error while writing scene to file");
+        })
+        .detach();
+    let asset_registry = world.get_resource_mut::<EmbeddedAssetRegistry>().unwrap();
+    asset_registry.insert_asset(
+        PathBuf::from(""),
+        &PathBuf::from("scenes/editor.scn.ron"),
+        other_scene.bytes().collect::<Vec<_>>(),
+    );
 }
 
 fn cleanup_entities_on_enter(mut cmds: Commands, cleanup_q: Query<Entity, With<Character>>) {
@@ -463,10 +465,6 @@ fn cleanup_entities_on_enter(mut cmds: Commands, cleanup_q: Query<Entity, With<C
             found_entity.despawn_recursive();
         }
     }
-}
-
-fn restore_on_enter(mut cmds: Commands, store: ResMut<EditorWorld>) {
-    cmds.spawn_batch(store.characters.clone());
 }
 
 fn update_editor_ui(
@@ -492,17 +490,15 @@ fn update_editor_ui(
                     .show(ui, |ui| {
                         let pawn_image = egui::load::SizedTexture::new(pawn_texture, [32.0, 32.0]);
                         if ImageButton::new(pawn_image)
-                            .selected(
-                                options.brush == BrushType::Character(CharacterTemplate::Pawn),
-                            )
+                            .selected(options.brush == BrushType::Character(Character::Pawn))
                             .ui(ui)
                             .on_hover_text("pawn")
                             .clicked()
                         {
-                            if options.brush == BrushType::Character(CharacterTemplate::Pawn) {
+                            if options.brush == BrushType::Character(Character::Pawn) {
                                 options.brush = BrushType::None;
                             } else {
-                                options.brush = BrushType::Character(CharacterTemplate::Pawn);
+                                options.brush = BrushType::Character(Character::Pawn);
                             }
                         };
                     });
@@ -510,15 +506,15 @@ fn update_editor_ui(
                 ui.heading("Goblins");
                 let raider_image = egui::load::SizedTexture::new(raider_texture, [32.0, 32.0]);
                 if ImageButton::new(raider_image)
-                    .selected(options.brush == BrushType::Character(CharacterTemplate::Raider))
+                    .selected(options.brush == BrushType::Character(Character::Raider))
                     .ui(ui)
                     .on_hover_text("raider")
                     .clicked()
                 {
-                    if options.brush == BrushType::Character(CharacterTemplate::Raider) {
+                    if options.brush == BrushType::Character(Character::Raider) {
                         options.brush = BrushType::None;
                     } else {
-                        options.brush = BrushType::Character(CharacterTemplate::Raider);
+                        options.brush = BrushType::Character(Character::Raider);
                     }
                 };
             });
@@ -613,41 +609,24 @@ fn update_editor_ui(
     }
 }
 
-// The editor world that can be saved or played?
-#[derive(Resource, Default)]
-pub struct EditorWorld {
-    characters: Vec<(CharacterBundle, CharacterTemplate)>,
-    characters_serialzied: Vec<u8>,
-}
-
 pub struct EditorPlugin<S: States> {
     state: S,
     loading_state: S,
 }
 
-impl<S: States> Plugin for EditorPlugin<S> {
+impl<S: States + bevy::state::state::FreelyMutableState> Plugin for EditorPlugin<S> {
     fn build(&self, app: &mut App) {
         app.configure_loading_state(
-            // todo: Loading state should be configurable
             LoadingStateConfig::new(self.loading_state.clone()).load_collection::<EditorAssets>(),
         )
+        .register_type::<Transform>()
         .add_plugins(EguiPlugin)
         .init_resource::<EditorOptions>()
-        .init_resource::<EditorWorld>()
         .add_systems(
             OnExit(self.state.clone()),
-            (
-                cleanup_entities_on_exit.before(store_on_exit),
-                store_on_exit,
-            ),
+            (store_scene, cleanup_entities_on_exit),
         )
-        .add_systems(
-            OnEnter(self.state.clone()),
-            (
-                cleanup_entities_on_enter.before(restore_on_enter),
-                restore_on_enter,
-            ),
-        )
+        .add_systems(OnEnter(self.state.clone()), (load_scene,))
         .add_systems(
             Update,
             (

@@ -1,9 +1,9 @@
 use bevy::prelude::*;
-use bevy::render::texture::ImageSamplerDescriptor;
-use bevy::window::Cursor;
+use bevy::ui::UiPlugin;
 use bevy_asset_loader::prelude::*;
 use bevy_prng::WyRand;
 use bevy_rand::prelude::EntropyPlugin;
+use tinyswords::building::BuildingPlugin;
 use tinyswords::camera::CameraPlugin;
 use tinyswords::characters::CharacterPlugin;
 #[cfg(debug_assertions)]
@@ -22,17 +22,10 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
-            // todo: https://github.com/rust-windowing/winit/blob/ab33fb8eda45f9a23587465d787a70a309c67ec4/src/changelog/v0.30.md?plain=1#L17
-            // the above allows a custom cursor to be set, currently bevy isn't using stable 0.29
-            // awaiting https://github.com/bevyengine/bevy/pull/13254
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Tiny Swords".into(),
                     name: Some("ts.app".into()),
-                    cursor: Cursor {
-                        visible: true,
-                        ..default()
-                    },
                     resolution: (1270., 720.).into(),
                     present_mode: bevy::window::PresentMode::AutoVsync,
                     window_theme: None,
@@ -45,10 +38,9 @@ fn main() {
                 ..default()
             })
             .set(ImagePlugin {
-                default_sampler: ImageSamplerDescriptor::nearest(),
+                default_sampler: bevy::image::ImageSamplerDescriptor::nearest(),
             }),
     )
-    .insert_resource(Msaa::Off) // stop's texture bleeding
     .init_state::<GameState>()
     .add_loading_state(
         // set our initial state after assets have loaded
@@ -56,6 +48,7 @@ fn main() {
     )
     .add_plugins(EntropyPlugin::<WyRand>::default())
     // todo: We need some systems to only load in game and some systems
+    .add_plugins(tinyswords::ui::UiPlugin::run_on_state(GameState::InEditor))
     .add_plugins(EditorPlugin::run_on_state(
         GameState::InEditor,
         GameState::AssetLoading,
@@ -75,6 +68,11 @@ fn main() {
         loading_state.clone(),
     ))
     .add_plugins(NavPlugin::run_on_state_or(
+        first_state.clone(),
+        other_state.clone(),
+        loading_state.clone(),
+    ))
+    .add_plugins(BuildingPlugin::run_on_state_or(
         first_state.clone(),
         other_state.clone(),
         loading_state.clone(),

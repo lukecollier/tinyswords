@@ -1,0 +1,45 @@
+(
+  resources: {},
+  entities: {
+    4294967497: (
+      components: {
+        "bevy_transform::components::transform::Transform": (
+          translation: (756.26953, 392.78125, 128.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+        "tinyswords::characters::Character": Pawn,
+      },
+    ),
+    4294967498: (
+      components: {
+        "bevy_transform::components::transform::Transform": (
+          translation: (756.26953, 392.78125, 128.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+        "tinyswords::characters::Character": Pawn,
+      },
+    ),
+    4294967499: (
+      components: {
+        "bevy_transform::components::transform::Transform": (
+          translation: (765.08984, 299.1953, 128.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+        "tinyswords::characters::Character": Pawn,
+      },
+    ),
+    8589934609: (
+      components: {
+        "bevy_transform::components::transform::Transform": (
+          translation: (607.94904, 288.0, 128.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+        "tinyswords::characters::Character": Pawn,
+      },
+    ),
+  },
+)

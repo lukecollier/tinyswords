@@ -1,8 +1,4 @@
 use bevy::prelude::*;
-use iyes_perf_ui::{
-    diagnostics::{PerfUiEntryFPS, PerfUiEntryFPSWorst},
-    PerfUiPlugin, PerfUiRoot,
-};
 
 pub struct DiagnosticsPlugin<'a, S: States> {
     active_states: &'a [S],
@@ -13,8 +9,7 @@ struct DiagnosticsOnly;
 
 impl<S: States> Plugin for DiagnosticsPlugin<'static, S> {
     fn build(&self, app: &mut App) {
-        app.add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
-            .add_plugins(PerfUiPlugin);
+        app.add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin);
         for state in self.active_states {
             app.add_systems(OnEnter(state.clone()), setup_diagnostics)
                 .add_systems(OnExit(state.clone()), teardown_diagnostics);
@@ -38,14 +33,5 @@ fn teardown_diagnostics(
 }
 
 fn setup_diagnostics(mut cmds: Commands) {
-    cmds.spawn((
-        PerfUiRoot {
-            display_labels: false,
-            layout_horizontal: true,
-            ..default()
-        },
-        PerfUiEntryFPSWorst::default(),
-        PerfUiEntryFPS::default(),
-        DiagnosticsOnly,
-    ));
+    cmds.spawn(DiagnosticsOnly);
 }

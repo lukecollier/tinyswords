@@ -16,7 +16,7 @@ pub struct GamePlugin<S: States> {
     state: S,
 }
 
-impl<S: States> Plugin for GamePlugin<S> {
+impl<S: States + bevy::state::state::FreelyMutableState> Plugin for GamePlugin<S> {
     fn build(&self, app: &mut App) {
         app.configure_loading_state(
             LoadingStateConfig::new(self.loading_state.clone()).load_collection::<GameAssets>(),
@@ -80,7 +80,7 @@ fn update_selection(
         let Some(cursor_pos) = window.cursor_position() else {
             return;
         };
-        if let Some(world_cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) {
+        if let Ok(world_cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) {
             let mut closest: Option<Entity> = None;
             let mut closest_distance = f32::MAX;
             if !keyboard_input.pressed(KeyCode::ShiftLeft) {
@@ -123,9 +123,8 @@ fn debug_character_position_center(
     for transform in character_q.iter_mut() {
         gizmos.ellipse_2d(
             transform.translation.truncate(),
-            0.,
             Vec2::new(16.0, 14.0),
-            Color::GREEN,
+            bevy::color::palettes::css::GREEN,
         );
     }
 }
@@ -146,8 +145,7 @@ fn update_character_orders(
         let Some(cursor_pos) = window.cursor_position() else {
             return;
         };
-        let Some(world_cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos)
-        else {
+        let Ok(world_cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else {
             return;
         };
         for (mut goal, transform) in goal_q.iter_mut() {

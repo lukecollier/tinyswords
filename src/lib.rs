@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+pub mod building;
 pub mod camera;
 pub mod characters;
 #[cfg(debug_assertions)]

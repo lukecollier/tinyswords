@@ -1,7 +1,7 @@
-#import bevy_pbr::forward_io::VertexOutput
-#import bevy_sprite::mesh2d_view_bindings globals 
+#import bevy_sprite::mesh2d_view_bindings::globals 
+#import bevy_sprite::mesh2d_vertex_output::VertexOutput
+#import bevy_render::view::View
 
-#import bevy_render::view  View
 @group(0) @binding(0) var<uniform> view: View;
 
 const PIXELATE_BY: f32 = 32.0;
