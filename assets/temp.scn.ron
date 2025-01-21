@@ -1,40 +1,60 @@
 (
   resources: {},
   entities: {
-    4294967497: (
+    4294967465: (
       components: {
         "bevy_transform::components::transform::Transform": (
-          translation: (756.26953, 392.78125, 128.0),
+          translation: (768.0691, 520.769, 100.0),
           rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
         ),
         "tinyswords::characters::Character": Pawn,
       },
     ),
-    4294967498: (
+    4294967466: (
       components: {
         "bevy_transform::components::transform::Transform": (
-          translation: (756.26953, 392.78125, 128.0),
+          translation: (629.9756, 579.3525, 100.0),
           rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
         ),
         "tinyswords::characters::Character": Pawn,
       },
     ),
-    4294967499: (
+    4294967467: (
       components: {
         "bevy_transform::components::transform::Transform": (
-          translation: (765.08984, 299.1953, 128.0),
+          translation: (748.53204, 613.20917, 100.0),
           rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
         ),
         "tinyswords::characters::Character": Pawn,
       },
     ),
-    8589934609: (
+    4294967468: (
       components: {
         "bevy_transform::components::transform::Transform": (
-          translation: (607.94904, 288.0, 128.0),
+          translation: (768.0691, 520.769, 100.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+        "tinyswords::characters::Character": Pawn,
+      },
+    ),
+    8589934603: (
+      components: {
+        "bevy_transform::components::transform::Transform": (
+          translation: (629.9756, 579.3525, 100.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+        "tinyswords::characters::Character": Pawn,
+      },
+    ),
+    12884901988: (
+      components: {
+        "bevy_transform::components::transform::Transform": (
+          translation: (748.53204, 613.20917, 100.0),
           rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
         ),

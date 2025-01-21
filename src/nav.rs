@@ -176,7 +176,6 @@ pub fn update_nav(pos_q: Query<&GlobalTransform>) {}
 
 pub struct NavPlugin<S: States> {
     state: S,
-    or_state: S,
     loading_state: S,
 }
 
@@ -191,25 +190,16 @@ impl<S: States> Plugin for NavPlugin<S> {
                 setup_nav,
             )
             .add_systems(
-                OnTransition {
-                    exited: self.loading_state.clone(),
-                    entered: self.or_state.clone(),
-                },
-                setup_nav,
-            )
-            .add_systems(
                 Update,
-                (update_nav, update_nav_graph_changed)
-                    .run_if(in_state(self.state.clone()).or(in_state(self.or_state.clone()))),
+                (update_nav, update_nav_graph_changed).run_if(in_state(self.state.clone())),
             );
     }
 }
 
 impl<S: States> NavPlugin<S> {
-    pub fn run_on_state_or(state: S, or_state: S, loading_state: S) -> Self {
+    pub fn run_on_state(state: S, loading_state: S) -> Self {
         Self {
             state,
-            or_state,
             loading_state,
         }
     }

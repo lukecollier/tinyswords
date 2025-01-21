@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::winit::cursor::{CursorIcon, CustomCursor};
 use bevy_asset_loader::prelude::*;
 
-use crate::GameState;
+use crate::AppState;
 
 #[derive(AssetCollection, Resource)]
 pub struct UiAssets {
@@ -27,9 +27,9 @@ pub struct UiPlugin<S: States> {
 impl<S: States> Plugin for UiPlugin<S> {
     fn build(&self, app: &mut App) {
         app.configure_loading_state(
-            LoadingStateConfig::new(GameState::AssetLoading).load_collection::<UiAssets>(),
+            LoadingStateConfig::new(AppState::AssetLoading).load_collection::<UiAssets>(),
         )
-        .add_systems(OnExit(GameState::AssetLoading), setup_cursor);
+        .add_systems(OnExit(AppState::AssetLoading), setup_cursor);
     }
 }
 

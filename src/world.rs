@@ -287,10 +287,7 @@ impl WorldAssets {
     fn coast(&self) -> Sprite {
         let texture = self.coast_texture.clone();
         let layout = self.coast_layout.clone();
-        let atlas= TextureAtlas {
-            layout,
-            index: 0,
-        };
+        let atlas = TextureAtlas { layout, index: 0 };
         let mut sprite = Sprite::from_atlas_image(texture, atlas);
         sprite.anchor = Anchor::Center;
         sprite
@@ -302,7 +299,7 @@ impl WorldAssets {
         }
         let layout = self.cliff_layout.clone();
         let texture = self.cliff_texture.clone();
-        let atlas= TextureAtlas {
+        let atlas = TextureAtlas {
             layout,
             index: idx as usize,
         };
@@ -314,7 +311,7 @@ impl WorldAssets {
     fn grass(&self) -> Sprite {
         let layout = self.land_layout.clone();
         let texture = self.grass_texture.clone();
-        let atlas= TextureAtlas {
+        let atlas = TextureAtlas {
             layout,
             index: WorldAssets::ISOLATE as usize,
         };
@@ -326,7 +323,7 @@ impl WorldAssets {
     fn sand(&self) -> Sprite {
         let layout = self.land_layout.clone();
         let texture = self.sand_texture.clone();
-        let atlas= TextureAtlas {
+        let atlas = TextureAtlas {
             layout,
             index: WorldAssets::ISOLATE as usize,
         };
@@ -338,7 +335,7 @@ impl WorldAssets {
     fn grass_crumbs(&self) -> Sprite {
         let layout = self.land_layout.clone();
         let texture = self.grass_texture.clone();
-        let atlas= TextureAtlas {
+        let atlas = TextureAtlas {
             layout,
             index: WorldAssets::CRUMBS as usize,
         };
@@ -350,7 +347,7 @@ impl WorldAssets {
     fn sand_crumbs(&self) -> Sprite {
         let layout = self.land_layout.clone();
         let texture = self.sand_texture.clone();
-        let atlas= TextureAtlas {
+        let atlas = TextureAtlas {
             layout,
             index: WorldAssets::CRUMBS as usize,
         };
@@ -366,10 +363,12 @@ impl WorldAssets {
         let platau_idx = self.platau_index_from_bitmask(WorldAssets::ISOLATE as u8);
         let mut children = vec![];
         for i in 1..=height {
-            let platau_sprite = self.cliff( platau_idx as u8);
+            let platau_sprite = self.cliff(platau_idx as u8);
             children.push(
                 cmds.spawn((
-                    Transform::from_translation((Vec2::Y * TILE_SIZE * i as f32).extend(0.4 + i as f32)),
+                    Transform::from_translation(
+                        (Vec2::Y * TILE_SIZE * i as f32).extend(0.4 + i as f32),
+                    ),
                     platau_sprite,
                     Platau,
                     DespawnOnElevationChange,
@@ -381,7 +380,9 @@ impl WorldAssets {
             children.push(
                 cmds.spawn((
                     wall_sprite,
-                    Transform::from_translation((Vec2::Y * TILE_SIZE * (i - 1) as f32).extend(0.4 + (i - 1) as f32)),
+                    Transform::from_translation(
+                        (Vec2::Y * TILE_SIZE * (i - 1) as f32).extend(0.4 + (i - 1) as f32),
+                    ),
                     Cliff,
                     DespawnOnElevationChange,
                     Elevation(i - 1),
@@ -391,7 +392,15 @@ impl WorldAssets {
         }
         // todo(improvement): Shadow could work like coast lines to automatically get cleaned up
         // via changes
-        children.push(cmds.spawn((shadow, Transform::from_translation((TILE_VEC * 0.5).extend(0.05)), Shadow, DespawnOnElevationChange)).id());
+        children.push(
+            cmds.spawn((
+                shadow,
+                Transform::from_translation((TILE_VEC * 0.5).extend(0.05)),
+                Shadow,
+                DespawnOnElevationChange,
+            ))
+            .id(),
+        );
         children
     }
 
@@ -399,7 +408,12 @@ impl WorldAssets {
         let tile = TileBundle::new(x, y, elevation);
         cmds.spawn(tile)
             .with_children(|parent| {
-                parent.spawn((self.grass(), Transform::from_xyz(0.,0.,0.), Land::Grass, Elevation(0)));
+                parent.spawn((
+                    self.grass(),
+                    Transform::from_xyz(0., 0., 0.),
+                    Land::Grass,
+                    Elevation(0),
+                ));
             })
             .id()
     }
@@ -413,9 +427,9 @@ impl WorldAssets {
         let tile = TileBundle::new(x, y, elevation);
         cmds.spawn(tile)
             .with_children(|parent| {
-                let sprite  = self.sand();
-                let transform= Transform::from_translation(Vec3::ZERO);
-                parent.spawn((sprite, transform,Land::Sand, Elevation(0)));
+                let sprite = self.sand();
+                let transform = Transform::from_translation(Vec3::ZERO);
+                parent.spawn((sprite, transform, Land::Sand, Elevation(0)));
             })
             .id()
     }
@@ -430,10 +444,11 @@ fn setup_water(
     let height = TILE_SIZE as f32 * WORLD_SIZE.y as f32;
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(width, height)).into()),
-        MeshMaterial2d(materials.add(WaterMaterial { color: Color::srgb(7.5, 0.0, 7.5) })),
-        Transform::from_xyz(width / 2., height / 2., -100.)
-        )
-    );
+        MeshMaterial2d(materials.add(WaterMaterial {
+            color: Color::srgb(7.5, 0.0, 7.5),
+        })),
+        Transform::from_xyz(width / 2., height / 2., -100.),
+    ));
 }
 
 fn update_meets_grass(
@@ -516,11 +531,11 @@ fn update_meets_grass(
                     if let Err(_) = children.get(*bot_entity) {
                         let sand = cmds
                             .spawn((
-                                    assets.sand(),
-                                    Transform::from_xyz(0., 0., -0.1),
-                                    Land::Sand,
-                                    DontRegisterLand,
-                                    Elevation(*elevation),
+                                assets.sand(),
+                                Transform::from_xyz(0., 0., -0.1),
+                                Land::Sand,
+                                DontRegisterLand,
+                                Elevation(*elevation),
                             ))
                             .id();
                         cmds.entity(*bot_entity).add_children(&[sand]);
@@ -538,7 +553,7 @@ fn update_meets_grass(
                         let sand = cmds
                             .spawn((
                                 assets.sand(),
-                                Transform::from_xyz(0.,0.,-0.1),
+                                Transform::from_xyz(0., 0., -0.1),
                                 Land::Sand,
                                 DontRegisterLand,
                                 Elevation(*elevation),
@@ -559,7 +574,7 @@ fn update_meets_grass(
                         let sand = cmds
                             .spawn((
                                 assets.sand(),
-                                Transform::from_xyz(0.,0.,-0.1),
+                                Transform::from_xyz(0., 0., -0.1),
                                 Land::Sand,
                                 DontRegisterLand,
                                 Elevation(*elevation),
@@ -579,7 +594,7 @@ fn update_meets_grass(
                             let sand = cmds
                                 .spawn((
                                     assets.sand(),
-                                    Transform::from_xyz(0.,0.,-0.1),
+                                    Transform::from_xyz(0., 0., -0.1),
                                     Land::Sand,
                                     DontRegisterLand,
                                     Elevation(*elevation),
@@ -667,7 +682,6 @@ fn update_coastline(
 
 pub struct WorldPlugin<S: States> {
     state: S,
-    or_state: S,
     loading_state: S,
 }
 
@@ -675,13 +689,6 @@ impl<S: States + bevy::state::state::FreelyMutableState> Plugin for WorldPlugin<
     fn build(&self, app: &mut App) {
         app.configure_loading_state(
             LoadingStateConfig::new(self.loading_state.clone()).load_collection::<WorldAssets>(),
-        )
-        .add_systems(
-            OnTransition {
-                exited: self.loading_state.clone(),
-                entered: self.or_state.clone(),
-            },
-            (setup_tile_system, setup_water),
         )
         .add_systems(
             OnTransition {
@@ -720,16 +727,15 @@ impl<S: States + bevy::state::state::FreelyMutableState> Plugin for WorldPlugin<
                 update_animated_tiles,
                 update_tile_elevation,
             )
-                .run_if(in_state(self.state.clone()).or(in_state(self.or_state.clone()))),
+                .run_if(in_state(self.state.clone())),
         );
     }
 }
 
 impl<S: States> WorldPlugin<S> {
-    pub fn run_on_state_or(state: S, or_state: S, loading_state: S) -> Self {
+    pub fn run_on_state(state: S, loading_state: S) -> Self {
         Self {
             state,
-            or_state,
             loading_state,
         }
     }
@@ -774,11 +780,7 @@ impl TileBundle {
             tile: Tile::new(x, y),
             elevation: Elevation(elevation),
             visibility: Visibility::Visible,
-            transform: Transform::from_xyz(
-                x as f32 * TILE_SIZE,
-                y as f32 * TILE_SIZE,
-                z_offset,
-            ),
+            transform: Transform::from_xyz(x as f32 * TILE_SIZE, y as f32 * TILE_SIZE, z_offset),
             ..default()
         }
     }
@@ -807,7 +809,8 @@ fn update_animated_tiles(
     if global_animation.timer.finished() {
         global_animation.frame += 1;
         for (mut sprite, animated) in &mut animated_q {
-            sprite.texture_atlas.as_mut().unwrap().index = global_animation.frame % animated.max_frames as usize;
+            sprite.texture_atlas.as_mut().unwrap().index =
+                global_animation.frame % animated.max_frames as usize;
         }
     }
 }
@@ -1022,7 +1025,7 @@ fn update_crumbs_placed_cliff(
                 let crumbs = cmds
                     .spawn((
                         assets.grass_crumbs(),
-                        Transform::from_xyz(0.,0., 0.7),
+                        Transform::from_xyz(0., 0., 0.7),
                         Crumbs,
                         CliffLand,
                         Elevation(*elevation),
@@ -1031,7 +1034,7 @@ fn update_crumbs_placed_cliff(
                 let grass = cmds
                     .spawn((
                         assets.grass(),
-                        Transform::from_xyz(0.,0., -0.1),
+                        Transform::from_xyz(0., 0., -0.1),
                         Land::Grass,
                         CliffLand,
                         Elevation(*elevation),
@@ -1044,7 +1047,7 @@ fn update_crumbs_placed_cliff(
                 let crumbs = cmds
                     .spawn((
                         assets.sand_crumbs(),
-                        Transform::from_xyz(0.,0.,0.6),
+                        Transform::from_xyz(0., 0., 0.6),
                         Crumbs,
                         CliffLand,
                         Elevation(*elevation),
@@ -1053,7 +1056,7 @@ fn update_crumbs_placed_cliff(
                 let sand = cmds
                     .spawn((
                         assets.sand(),
-                        Transform::from_xyz(0.,0.,-0.1),
+                        Transform::from_xyz(0., 0., -0.1),
                         Land::Sand,
                         CliffLand,
                         Elevation(*elevation),
@@ -1105,7 +1108,7 @@ fn update_added_crumbs(
                             let crumbs = cmds
                                 .spawn((
                                     assets.grass_crumbs(),
-                                    Transform::from_xyz(0.,0., 0.7),
+                                    Transform::from_xyz(0., 0., 0.7),
                                     Crumbs,
                                     CliffLand,
                                     DontRegisterLand,
@@ -1115,7 +1118,7 @@ fn update_added_crumbs(
                             let grass = cmds
                                 .spawn((
                                     assets.grass(),
-                                    Transform::from_xyz(0.,0., -0.1),
+                                    Transform::from_xyz(0., 0., -0.1),
                                     Land::Grass,
                                     CliffLand,
                                     Elevation(*elevation),
@@ -1127,7 +1130,7 @@ fn update_added_crumbs(
                             let crumbs = cmds
                                 .spawn((
                                     assets.sand_crumbs(),
-                                    Transform::from_xyz(0.,0., 0.6),
+                                    Transform::from_xyz(0., 0., 0.6),
                                     Crumbs,
                                     CliffLand,
                                     DontRegisterLand,
@@ -1137,7 +1140,7 @@ fn update_added_crumbs(
                             let sand = cmds
                                 .spawn((
                                     assets.sand(),
-                                    Transform::from_xyz(0.,0., -0.1),
+                                    Transform::from_xyz(0., 0., -0.1),
                                     Land::Sand,
                                     CliffLand,
                                     Elevation(*elevation),
@@ -1171,18 +1174,18 @@ fn update_added_land_atlas_index(
                 .as_i16vec2();
             if land.is_added() {
                 let mut bitmask_total = 0;
-                bitmask_total += tiles.contains_key(&(tile_pos.x, tile_pos.y + 1, *elevation, *land))
-                    as u8
-                    * 2_u8.pow(0);
-                bitmask_total += tiles.contains_key(&(tile_pos.x - 1, tile_pos.y, *elevation, *land))
-                    as u8
-                    * 2_u8.pow(1);
-                bitmask_total += tiles.contains_key(&(tile_pos.x + 1, tile_pos.y, *elevation, *land))
-                    as u8
-                    * 2_u8.pow(2);
-                bitmask_total += tiles.contains_key(&(tile_pos.x, tile_pos.y - 1, *elevation, *land))
-                    as u8
-                    * 2_u8.pow(3);
+                bitmask_total +=
+                    tiles.contains_key(&(tile_pos.x, tile_pos.y + 1, *elevation, *land)) as u8
+                        * 2_u8.pow(0);
+                bitmask_total +=
+                    tiles.contains_key(&(tile_pos.x - 1, tile_pos.y, *elevation, *land)) as u8
+                        * 2_u8.pow(1);
+                bitmask_total +=
+                    tiles.contains_key(&(tile_pos.x + 1, tile_pos.y, *elevation, *land)) as u8
+                        * 2_u8.pow(2);
+                bitmask_total +=
+                    tiles.contains_key(&(tile_pos.x, tile_pos.y - 1, *elevation, *land)) as u8
+                        * 2_u8.pow(3);
                 atlas.index = assets.index_from_bitmask(bitmask_total as u8);
             } else {
                 if let Some(true) = tiles.get(&(tile_pos.x, tile_pos.y - 1, *elevation, *land)) {
@@ -1201,7 +1204,6 @@ fn update_added_land_atlas_index(
                     let bitmask_down = assets.bitmask_from_index(atlas.index) + BITMASK_TOP;
                     atlas.index = assets.index_from_bitmask(bitmask_down);
                 }
-
             }
         }
     }
@@ -1231,12 +1233,12 @@ fn update_changed_cliff_atlas_index(
                 .as_i16vec2();
             if cliff.is_added() {
                 let mut bitmask_total = 0;
-                bitmask_total += tiles.contains_key(&(tile_pos.x - 1, tile_pos.y, *elevation, *cliff))
-                    as u8
-                    * 2_u8.pow(0);
-                bitmask_total += tiles.contains_key(&(tile_pos.x + 1, tile_pos.y, *elevation, *cliff))
-                    as u8
-                    * 2_u8.pow(1);
+                bitmask_total +=
+                    tiles.contains_key(&(tile_pos.x - 1, tile_pos.y, *elevation, *cliff)) as u8
+                        * 2_u8.pow(0);
+                bitmask_total +=
+                    tiles.contains_key(&(tile_pos.x + 1, tile_pos.y, *elevation, *cliff)) as u8
+                        * 2_u8.pow(1);
                 atlas.index = assets.cliff_index_from_bitmask(bitmask_total as u8);
             } else {
                 if let Some(true) = tiles.get(&(tile_pos.x - 1, tile_pos.y, *elevation, *cliff)) {
@@ -1277,18 +1279,18 @@ fn update_changed_platau_atlas_index(
                 .as_i16vec2();
             if platau.is_added() {
                 let mut bitmask_total = 0;
-                bitmask_total += tiles.contains_key(&(tile_pos.x, tile_pos.y + 1, *elevation, *platau))
-                    as u8
-                    * 2_u8.pow(0);
-                bitmask_total += tiles.contains_key(&(tile_pos.x - 1, tile_pos.y, *elevation, *platau))
-                    as u8
-                    * 2_u8.pow(1);
-                bitmask_total += tiles.contains_key(&(tile_pos.x + 1, tile_pos.y, *elevation, *platau))
-                    as u8
-                    * 2_u8.pow(2);
-                bitmask_total += tiles.contains_key(&(tile_pos.x, tile_pos.y - 1, *elevation, *platau))
-                    as u8
-                    * 2_u8.pow(3);
+                bitmask_total +=
+                    tiles.contains_key(&(tile_pos.x, tile_pos.y + 1, *elevation, *platau)) as u8
+                        * 2_u8.pow(0);
+                bitmask_total +=
+                    tiles.contains_key(&(tile_pos.x - 1, tile_pos.y, *elevation, *platau)) as u8
+                        * 2_u8.pow(1);
+                bitmask_total +=
+                    tiles.contains_key(&(tile_pos.x + 1, tile_pos.y, *elevation, *platau)) as u8
+                        * 2_u8.pow(2);
+                bitmask_total +=
+                    tiles.contains_key(&(tile_pos.x, tile_pos.y - 1, *elevation, *platau)) as u8
+                        * 2_u8.pow(3);
                 atlas.index = assets.platau_index_from_bitmask(bitmask_total as u8);
             } else {
                 if let Some(true) = tiles.get(&(tile_pos.x, tile_pos.y - 1, *elevation, *platau)) {
@@ -1296,11 +1298,13 @@ fn update_changed_platau_atlas_index(
                     atlas.index = assets.platau_index_from_bitmask(bitmask_up);
                 }
                 if let Some(true) = tiles.get(&(tile_pos.x + 1, tile_pos.y, *elevation, *platau)) {
-                    let bitmask_left = assets.bitmask_from_platau_index(atlas.index) + BITMASK_RIGHT;
+                    let bitmask_left =
+                        assets.bitmask_from_platau_index(atlas.index) + BITMASK_RIGHT;
                     atlas.index = assets.platau_index_from_bitmask(bitmask_left);
                 }
                 if let Some(true) = tiles.get(&(tile_pos.x - 1, tile_pos.y, *elevation, *platau)) {
-                    let bitmask_right = assets.bitmask_from_platau_index(atlas.index) + BITMASK_LEFT;
+                    let bitmask_right =
+                        assets.bitmask_from_platau_index(atlas.index) + BITMASK_LEFT;
                     atlas.index = assets.platau_index_from_bitmask(bitmask_right);
                 }
                 if let Some(true) = tiles.get(&(tile_pos.x, tile_pos.y + 1, *elevation, *platau)) {

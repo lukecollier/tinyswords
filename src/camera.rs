@@ -9,7 +9,6 @@ pub struct MainCamera {
 
 pub struct CameraPlugin<S: States> {
     state: S,
-    or_state: S,
     loading_state: S,
 }
 
@@ -23,25 +22,16 @@ impl<S: States> Plugin for CameraPlugin<S> {
             setup_game_camera,
         )
         .add_systems(
-            OnTransition {
-                exited: self.loading_state.clone(),
-                entered: self.or_state.clone(),
-            },
-            setup_game_camera,
-        )
-        .add_systems(
             Update,
-            update_game_camera
-                .run_if(in_state(self.state.clone()).or(in_state(self.or_state.clone()))),
+            update_game_camera.run_if(in_state(self.state.clone())),
         );
     }
 }
 
 impl<S: States> CameraPlugin<S> {
-    pub fn run_on_state_or(state: S, or_state: S, loading_state: S) -> Self {
+    pub fn run_on_state(state: S, loading_state: S) -> Self {
         Self {
             state,
-            or_state,
             loading_state,
         }
     }
@@ -49,6 +39,7 @@ impl<S: States> CameraPlugin<S> {
 
 fn setup_game_camera(mut cmds: Commands) {
     cmds.spawn((
+        Transform::from_translation(Vec3::new(1000., 1000., 0.)),
         Camera2d,
         Msaa::Off,
         MainCamera {
@@ -60,12 +51,13 @@ fn setup_game_camera(mut cmds: Commands) {
 fn update_game_camera(
     time: Res<Time>,
     window_q: Query<&Window>,
-    mut camera_q: Query<(&Camera, &mut Transform, &mut MainCamera)>,
+    camera_q: Single<(&Camera, &mut MainCamera)>,
+    camera_transform_q: Single<&mut Transform, With<MainCamera>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
+    let (camera, camera_config) = camera_q.into_inner();
     // error if window does not exist
     let window = window_q.single();
-    let (camera, mut camera_transform, camera_config) = camera_q.single_mut();
     // if the cursor is in the window we ready
     if let Some(cursor_pos) = window.cursor_position() {
         let camera_speed = 250.;
@@ -102,19 +94,25 @@ fn update_game_camera(
                     }
                 }
             }
-            camera_transform.translation -=
-                direction.extend(0.0) * time.delta_secs() * camera_speed;
-            camera_transform.translation = camera_transform.translation.clamp(
-                rect.half_size().extend(0.0),
-                Vec3::new(
-                    TILE_SIZE * WORLD_SIZE.x as f32,
-                    TILE_SIZE * WORLD_SIZE.y as f32,
-                    0.0,
-                ) - rect.half_size().extend(0.0),
-            );
+            if direction != Vec2::ZERO {
+                let mut camera_transform = camera_transform_q.into_inner();
+                camera_transform.translation -=
+                    direction.extend(0.0) * time.delta_secs() * camera_speed;
+                camera_transform.translation = camera_transform.translation.clamp(
+                    rect.half_size().extend(0.0),
+                    Vec3::new(
+                        TILE_SIZE * WORLD_SIZE.x as f32,
+                        TILE_SIZE * WORLD_SIZE.y as f32,
+                        0.0,
+                    ) - rect.half_size().extend(0.0),
+                );
+            }
         } else {
-            camera_transform.translation -=
-                direction.extend(0.0) * time.delta_secs() * camera_speed;
+            if direction != Vec2::ZERO {
+                let mut camera_transform = camera_transform_q.into_inner();
+                camera_transform.translation -=
+                    direction.extend(0.0) * time.delta_secs() * camera_speed;
+            }
         }
     }
 }

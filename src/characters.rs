@@ -23,7 +23,7 @@ pub struct CharacterAssets {
 }
 
 impl CharacterAssets {
-    pub fn pawn(&self, xy: Vec2) -> CharacterBundle {
+    pub fn pawn(&self) -> AnimatedSpriteBundle {
         let mut sprite_sheet = Sprite::from_atlas_image(
             self.pawn_texture.clone(),
             TextureAtlas {
@@ -37,19 +37,13 @@ impl CharacterAssets {
         animation.clip_book.insert(String::from("default"), (0, 6));
         animation.clip_book.insert(String::from("walk"), (6, 11));
         animation.clip_book.insert(String::from("build"), (11, 16));
-        CharacterBundle {
-            id: Character::Pawn,
-            stats: Stats {
-                speed_in_pixels_per_second: TILE_SIZE,
-            },
-            target: Goal::default(),
-            transform: Transform::from_translation(xy.extend(128.)),
+        AnimatedSpriteBundle {
             sprite_sheet,
             animation,
         }
     }
 
-    pub fn raider(&self, xy: Vec2) -> CharacterBundle {
+    pub fn raider(&self) -> AnimatedSpriteBundle {
         let mut sprite = Sprite::from_atlas_image(
             self.raider_texture.clone(),
             TextureAtlas {
@@ -69,13 +63,7 @@ impl CharacterAssets {
         animation
             .clip_book
             .insert(String::from("attack_up"), (23, 28));
-        CharacterBundle {
-            id: Character::Raider,
-            stats: Stats {
-                speed_in_pixels_per_second: TILE_SIZE,
-            },
-            transform: Transform::from_translation(xy.extend(128.)),
-            target: Goal::default(),
+        AnimatedSpriteBundle {
             sprite_sheet: sprite,
             animation,
         }
@@ -84,7 +72,6 @@ impl CharacterAssets {
 
 pub struct CharacterPlugin<S: States> {
     state: S,
-    or_state: S,
     loading_state: S,
 }
 
@@ -103,29 +90,21 @@ impl<S: States + bevy::state::state::FreelyMutableState> Plugin for CharacterPlu
                 setup_characters,
             )
             .add_systems(
-                OnTransition {
-                    exited: self.loading_state.clone(),
-                    entered: self.or_state.clone(),
-                },
-                setup_characters,
-            )
-            .add_systems(
                 Update,
                 (
                     update_character_movement,
                     update_animated_characters,
                     on_added_insert_visuals,
                 )
-                    .run_if(in_state(self.state.clone()).or(in_state(self.or_state.clone()))),
+                    .run_if(in_state(self.state.clone())),
             );
     }
 }
 
 impl<S: States> CharacterPlugin<S> {
-    pub fn run_on_state_or(state: S, or_state: S, loading_state: S) -> Self {
+    pub fn run_on_state(state: S, loading_state: S) -> Self {
         Self {
             state,
-            or_state,
             loading_state,
         }
     }
@@ -135,6 +114,14 @@ impl<S: States> CharacterPlugin<S> {
 #[reflect(Component)]
 pub struct Stats {
     pub speed_in_pixels_per_second: f32,
+}
+
+impl Default for Stats {
+    fn default() -> Self {
+        Stats {
+            speed_in_pixels_per_second: TILE_SIZE,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -203,53 +190,36 @@ impl Default for Animation {
 
 #[derive(Component, Eq, PartialEq, Clone, Copy, Reflect, Debug)]
 #[reflect(Component)]
+#[require(Transform, Stats, Goal)]
 pub enum Character {
     Pawn,
     Raider,
 }
 impl Character {
-    pub fn bundle(&self, character_assets: &CharacterAssets, xy: Vec2) -> CharacterBundle {
+    pub fn animated_sprite(&self, character_assets: &CharacterAssets) -> AnimatedSpriteBundle {
         match self {
-            Character::Pawn => character_assets.pawn(xy),
-            Character::Raider => character_assets.raider(xy),
+            Character::Pawn => character_assets.pawn(),
+            Character::Raider => character_assets.raider(),
         }
     }
 }
 
 fn on_added_insert_visuals(
     mut commands: Commands,
-    query: Query<
-        (Entity, &Character, &Transform),
-        (Added<Character>, Without<Sprite>, Without<Animation>),
-    >,
+    query: Query<(Entity, &Character), (Added<Character>, Without<Sprite>, Without<Animation>)>,
     assets: Res<CharacterAssets>,
 ) {
-    for (entity, character, transform) in &query {
-        let bundle = character.bundle(&assets, transform.translation.truncate());
-        commands
-            .entity(entity)
-            .insert((bundle.sprite_sheet, bundle.animation));
+    for (entity, character) in &query {
+        let bundle = character.animated_sprite(&assets);
+        commands.entity(entity).insert(bundle);
     }
 }
 
-// todo: Deprecate and move to require macro
 #[derive(Bundle, Clone)]
-pub struct CharacterBundle {
-    pub id: Character,
-    pub stats: Stats,
-    pub target: Goal,
-    pub sprite_sheet: Sprite,
-    pub transform: Transform,
-    pub animation: Animation,
-}
-
-#[derive(Bundle, Clone)]
-pub struct AnimatedSprite {
+pub struct AnimatedSpriteBundle {
     pub animation: Animation,
     pub sprite_sheet: Sprite,
 }
-
-impl CharacterBundle {}
 
 fn setup_characters(cmds: Commands, assets: Res<CharacterAssets>) {
     // todo: I guess load from a map? Or something?

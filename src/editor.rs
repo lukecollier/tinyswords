@@ -4,12 +4,13 @@ use crate::{
     camera::MainCamera,
     characters::{Character, CharacterAssets},
     nav::{NavBundle, Navigation},
+    terrain::{TerrainWorld, TerrainWorldDefault},
     world::{TileMap, WorldAssets, TILE_SIZE, TILE_VEC, WORLD_SIZE},
-    GameState,
+    InGameState,
 };
 use bevy::{
     asset::io::embedded::EmbeddedAssetRegistry, prelude::*, render::camera::Viewport,
-    scene::SceneInstanceReady,
+    state::state::FreelyMutableState, winit::WinitWindows,
 };
 use bevy_asset_loader::prelude::*;
 use bevy_egui::{
@@ -66,6 +67,7 @@ enum PaintShape {
 
 #[derive(Resource)]
 struct EditorOptions {
+    file_path: Option<PathBuf>,
     show_terrain: bool,
     show_characters: bool,
     elevation: u8,
@@ -84,6 +86,7 @@ struct EditorOnly;
 impl Default for EditorOptions {
     fn default() -> Self {
         Self {
+            file_path: None,
             show_terrain: false,
             show_characters: false,
             elevation: 0,
@@ -168,13 +171,13 @@ fn update_place_character(
                         }
                         Err(bevy::ecs::query::QuerySingleError::NoEntities(_)) => {
                             match &options.brush {
-                                BrushType::Character(template) => {
-                                    let character =
-                                        template.bundle(&character_assets, world_cursor_pos);
+                                BrushType::Character(character) => {
+                                    let animated_sprite =
+                                        character.animated_sprite(&character_assets);
                                     cmds.spawn((
                                         Transform::from_translation(world_cursor_pos.extend(100.)),
-                                        template.clone(),
-                                        character.sprite_sheet,
+                                        character.clone(),
+                                        animated_sprite,
                                         CharacterShadow,
                                         EditorOnly,
                                     ));
@@ -196,10 +199,14 @@ fn update_place_character(
                                 transform.translation.truncate()
                                     + Vec2::Y * top_offset_logical_pixels,
                             ) {
-                                cmds.spawn((template.bundle(
-                                    &character_assets,
-                                    world_cursor_pos + Vec2::Y * top_offset_logical_pixels,
-                                ),));
+                                cmds.spawn((
+                                    template.clone(),
+                                    template.animated_sprite(&character_assets),
+                                    Transform::from_translation(
+                                        (world_cursor_pos + Vec2::Y * top_offset_logical_pixels)
+                                            .extend(100.),
+                                    ),
+                                ));
                             }
                         }
                     }
@@ -207,6 +214,12 @@ fn update_place_character(
             }
         }
     }
+}
+
+fn update_terrain_tile_selected(terrain: Res<TerrainWorldDefault>) {
+    // terrain.get_tile_entity(pos)
+    // we can use this entity for visual elements before writing any changes back to our terrain
+    // world
 }
 
 fn update_place_terrain(
@@ -306,20 +319,32 @@ fn debug_nav_pathing(gizmos: Gizmos, navigation: Res<Navigation>) {
 }
 
 fn update_editor_menu(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
     mut contexts: EguiContexts,
     mut options: ResMut<EditorOptions>,
     window_q: Query<&Window>,
     mut camera_q: Query<&mut Camera, With<MainCamera>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut next_state: ResMut<NextState<GameState>>,
+    mut next_ingame_state: ResMut<NextState<InGameState>>,
+    // fixes rfd forcing running on the main thread
+    mut _windows: NonSend<WinitWindows>,
 ) {
     use egui::*;
     let logical_height = TopBottomPanel::top("top_panel")
         .show(contexts.ctx_mut(), |ui| {
             menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("Open").clicked() {}
-                    if ui.button("Save").clicked() {}
+                    if ui.button("Open").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().pick_file() {
+                            options.file_path = Some(path.clone());
+                            let root = DynamicSceneRoot(asset_server.load(path));
+                            commands.spawn(root);
+                        }
+                    }
+                    if ui.button("Save").clicked() {
+                        next_ingame_state.set(InGameState::Saving);
+                    }
                 })
                 .response;
                 let mut layout_job = LayoutJob::default();
@@ -357,7 +382,7 @@ fn update_editor_menu(
                 if ui.button(layout_job_play).clicked()
                     || keyboard_input.just_pressed(KeyCode::KeyP)
                 {
-                    next_state.set(GameState::InGame);
+                    next_ingame_state.set(InGameState::Running);
                 }
 
                 let mut layout_job_characters = LayoutJob::default();
@@ -403,6 +428,24 @@ fn update_editor_menu(
     }
 }
 
+/**
+ * Resets the camera to take up the full window
+ */
+fn on_exit_camera_full_window(
+    window_q: Query<&Window>,
+    mut camera_q: Query<&mut Camera, With<MainCamera>>,
+) {
+    if let Ok(window) = window_q.get_single() {
+        for mut camera in camera_q.iter_mut() {
+            camera.viewport = Some(Viewport {
+                physical_position: UVec2::new(0, 0),
+                physical_size: UVec2::new(window.physical_width(), window.physical_height()),
+                ..default()
+            });
+        }
+    }
+}
+
 #[derive(Component, Eq, PartialEq, Clone, Copy)]
 enum Terrain {
     Grass,
@@ -425,6 +468,40 @@ fn load_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(root);
 }
 
+fn save_scene(world: &mut World) {
+    let mut characters = world.query_filtered::<Entity, (With<Character>, Without<EditorOnly>)>();
+    let scene = DynamicSceneBuilder::from_world(world)
+        .deny_all_components()
+        .allow_component::<Character>()
+        .allow_component::<Transform>()
+        .extract_entities(characters.iter(&world))
+        .build();
+    let type_registry = world.resource::<AppTypeRegistry>().clone();
+    let type_registry = type_registry.read();
+    let serialized_scene = scene.serialize(&type_registry).unwrap();
+    // Writing the scene to a new file. Using a task to avoid calling the filesystem APIs in a system
+    // as they are blocking
+    // This can't work in Wasm as there is no filesystem access
+    if let Some(path) = world
+        .get_resource::<EditorOptions>()
+        .unwrap()
+        .file_path
+        .clone()
+    {
+        #[cfg(not(target_arch = "wasm32"))]
+        bevy::tasks::IoTaskPool::get()
+            .spawn(async move {
+                // Write the scene RON data to file
+                File::create(path)
+                    .and_then(|mut file| file.write(serialized_scene.as_bytes()))
+                    .expect("Error while writing scene to file");
+            })
+            .detach();
+    };
+    let mut next_state = world.get_resource_mut::<NextState<InGameState>>().unwrap();
+    next_state.set(InGameState::InEditor);
+}
+
 // todo: we can store the scene in memory while editing and offer a different option for saving to
 // a file.
 fn store_scene(world: &mut World) {
@@ -438,24 +515,15 @@ fn store_scene(world: &mut World) {
     let type_registry = world.resource::<AppTypeRegistry>().clone();
     let type_registry = type_registry.read();
     let serialized_scene = scene.serialize(&type_registry).unwrap();
-    let other_scene = serialized_scene.clone();
     // Writing the scene to a new file. Using a task to avoid calling the filesystem APIs in a system
     // as they are blocking
     // This can't work in Wasm as there is no filesystem access
-    #[cfg(not(target_arch = "wasm32"))]
-    bevy::tasks::IoTaskPool::get()
-        .spawn(async move {
-            // Write the scene RON data to file
-            File::create(format!("assets/temp.scn.ron"))
-                .and_then(|mut file| file.write(serialized_scene.as_bytes()))
-                .expect("Error while writing scene to file");
-        })
-        .detach();
     let asset_registry = world.get_resource_mut::<EmbeddedAssetRegistry>().unwrap();
+    dbg!(&serialized_scene);
     asset_registry.insert_asset(
         PathBuf::from(""),
         &PathBuf::from("scenes/editor.scn.ron"),
-        other_scene.bytes().collect::<Vec<_>>(),
+        serialized_scene.bytes().collect::<Vec<_>>(),
     );
 }
 
@@ -609,12 +677,12 @@ fn update_editor_ui(
     }
 }
 
-pub struct EditorPlugin<S: States> {
+pub struct EditorPlugin<S: States, L: States> {
     state: S,
-    loading_state: S,
+    loading_state: L,
 }
 
-impl<S: States + bevy::state::state::FreelyMutableState> Plugin for EditorPlugin<S> {
+impl<S: States + FreelyMutableState, L: States + FreelyMutableState> Plugin for EditorPlugin<S, L> {
     fn build(&self, app: &mut App) {
         app.configure_loading_state(
             LoadingStateConfig::new(self.loading_state.clone()).load_collection::<EditorAssets>(),
@@ -624,15 +692,25 @@ impl<S: States + bevy::state::state::FreelyMutableState> Plugin for EditorPlugin
         .init_resource::<EditorOptions>()
         .add_systems(
             OnExit(self.state.clone()),
-            (store_scene, cleanup_entities_on_exit),
+            (
+                store_scene,
+                cleanup_entities_on_exit,
+                on_exit_camera_full_window,
+            )
+                .chain(),
         )
-        .add_systems(OnEnter(self.state.clone()), (load_scene,))
+        .add_systems(
+            OnEnter(self.state.clone()),
+            (cleanup_entities_on_enter, load_scene).chain(),
+        )
+        .add_systems(OnEnter(InGameState::Saving), save_scene)
         .add_systems(
             Update,
             (
                 update_editor_ui,
                 update_editor_menu,
                 update_place_terrain,
+                update_terrain_tile_selected,
                 update_place_character,
                 update_block_camera_move_egui,
                 debug_nav_pathing,
@@ -642,8 +720,8 @@ impl<S: States + bevy::state::state::FreelyMutableState> Plugin for EditorPlugin
     }
 }
 
-impl<S: States> EditorPlugin<S> {
-    pub fn run_on_state(state: S, loading: S) -> Self {
+impl<S: States, L: States> EditorPlugin<S, L> {
+    pub fn run_on_state(state: S, loading: L) -> Self {
         Self {
             state,
             loading_state: loading,

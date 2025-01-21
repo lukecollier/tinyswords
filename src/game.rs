@@ -5,7 +5,7 @@ use crate::{
     camera::MainCamera,
     characters::{Character, Goal, Target},
     nav::Navigation,
-    GameState,
+    InGameState,
 };
 
 #[derive(AssetCollection, Resource)]
@@ -49,10 +49,10 @@ pub struct CharacterSelected;
 
 fn update_return_to_editor(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut next_state: ResMut<NextState<GameState>>,
+    mut next_state: ResMut<NextState<InGameState>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Escape) {
-        next_state.set(GameState::InEditor);
+        next_state.set(InGameState::InEditor);
     }
 }
 

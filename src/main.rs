@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::ui::UiPlugin;
 use bevy_asset_loader::prelude::*;
 use bevy_prng::WyRand;
 use bevy_rand::prelude::EntropyPlugin;
@@ -11,14 +10,10 @@ use tinyswords::diagnostics::DiagnosticsPlugin;
 use tinyswords::editor::EditorPlugin;
 use tinyswords::game::GamePlugin;
 use tinyswords::nav::NavPlugin;
-use tinyswords::world::WorldPlugin;
-use tinyswords::GameState;
-const RUNNING_STATE: [GameState; 2] = [GameState::InEditor, GameState::InGame];
+use tinyswords::AppState;
+use tinyswords::{terrain::*, InGameState};
 
 fn main() {
-    let loading_state = GameState::AssetLoading;
-    let first_state = GameState::InEditor;
-    let other_state = GameState::InGame;
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -41,51 +36,48 @@ fn main() {
                 default_sampler: bevy::image::ImageSamplerDescriptor::nearest(),
             }),
     )
-    .init_state::<GameState>()
+    .init_state::<AppState>()
+    .init_state::<InGameState>()
     .add_loading_state(
         // set our initial state after assets have loaded
-        LoadingState::new(GameState::AssetLoading).continue_to_state(first_state.clone()),
+        LoadingState::new(AppState::AssetLoading).continue_to_state(AppState::InGame),
     )
     .add_plugins(EntropyPlugin::<WyRand>::default())
-    // todo: We need some systems to only load in game and some systems
-    .add_plugins(tinyswords::ui::UiPlugin::run_on_state(GameState::InEditor))
+    .add_plugins(tinyswords::ui::UiPlugin::run_on_state(
+        InGameState::InEditor,
+    ))
     .add_plugins(EditorPlugin::run_on_state(
-        GameState::InEditor,
-        GameState::AssetLoading,
+        InGameState::InEditor,
+        AppState::AssetLoading,
     ))
     .add_plugins(GamePlugin::run_on_state(
-        GameState::InGame,
-        loading_state.clone(),
+        AppState::InGame,
+        AppState::AssetLoading,
     ))
-    .add_plugins(WorldPlugin::run_on_state_or(
-        first_state.clone(),
-        other_state.clone(),
-        loading_state.clone(),
+    .add_plugins(CharacterPlugin::run_on_state(
+        AppState::InGame,
+        AppState::AssetLoading,
     ))
-    .add_plugins(CharacterPlugin::run_on_state_or(
-        first_state.clone(),
-        other_state.clone(),
-        loading_state.clone(),
+    .add_plugins(NavPlugin::run_on_state(
+        AppState::InGame,
+        AppState::AssetLoading,
     ))
-    .add_plugins(NavPlugin::run_on_state_or(
-        first_state.clone(),
-        other_state.clone(),
-        loading_state.clone(),
+    .add_plugins(BuildingPlugin::run_on_state(
+        AppState::InGame,
+        AppState::AssetLoading,
     ))
-    .add_plugins(BuildingPlugin::run_on_state_or(
-        first_state.clone(),
-        other_state.clone(),
-        loading_state.clone(),
+    .add_plugins(CameraPlugin::run_on_state(
+        AppState::InGame,
+        AppState::AssetLoading,
     ))
-    .add_plugins(CameraPlugin::run_on_state_or(
-        first_state.clone(),
-        other_state.clone(),
-        loading_state.clone(),
+    .add_plugins(TerrainPlugin::run_on_state(
+        AppState::InGame,
+        AppState::AssetLoading,
     ));
 
     #[cfg(debug_assertions)]
     {
-        app.add_plugins(DiagnosticsPlugin::run_on_states(&RUNNING_STATE));
+        app.add_plugins(DiagnosticsPlugin::run_on_state(&AppState::InGame));
     }
 
     app.run();

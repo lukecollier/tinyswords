@@ -31,7 +31,6 @@ impl BuildingAssets {}
 
 pub struct BuildingPlugin<S: States> {
     state: S,
-    or_state: S,
     loading_state: S,
 }
 
@@ -44,10 +43,9 @@ impl<S: States + bevy::state::state::FreelyMutableState> Plugin for BuildingPlug
 }
 
 impl<S: States> BuildingPlugin<S> {
-    pub fn run_on_state_or(state: S, or_state: S, loading_state: S) -> Self {
+    pub fn run_on_state(state: S, loading_state: S) -> Self {
         Self {
             state,
-            or_state,
             loading_state,
         }
     }
