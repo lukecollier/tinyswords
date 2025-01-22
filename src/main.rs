@@ -32,9 +32,7 @@ fn main() {
                 }),
                 ..default()
             })
-            .set(ImagePlugin {
-                default_sampler: bevy::image::ImageSamplerDescriptor::nearest(),
-            }),
+            .set(ImagePlugin::default_nearest()),
     )
     .init_state::<AppState>()
     .init_state::<InGameState>()

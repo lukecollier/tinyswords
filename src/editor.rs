@@ -4,13 +4,13 @@ use crate::{
     camera::MainCamera,
     characters::{Character, CharacterAssets},
     nav::{NavBundle, Navigation},
-    terrain::{TerrainWorld, TerrainWorldDefault},
+    terrain::{TerrainTile, TerrainWorldDefault},
     world::{TileMap, WorldAssets, TILE_SIZE, TILE_VEC, WORLD_SIZE},
     InGameState,
 };
 use bevy::{
-    asset::io::embedded::EmbeddedAssetRegistry, prelude::*, render::camera::Viewport,
-    state::state::FreelyMutableState, winit::WinitWindows,
+    asset::io::embedded::EmbeddedAssetRegistry, color::palettes::css::GREEN, prelude::*,
+    render::camera::Viewport, state::state::FreelyMutableState, winit::WinitWindows,
 };
 use bevy_asset_loader::prelude::*;
 use bevy_egui::{
@@ -216,8 +216,77 @@ fn update_place_character(
     }
 }
 
-fn update_terrain_tile_selected(terrain: Res<TerrainWorldDefault>) {
-    // terrain.get_tile_entity(pos)
+fn zoom_scale(
+    mut query_camera: Query<&mut OrthographicProjection, With<MainCamera>>,
+    button: Res<ButtonInput<KeyCode>>,
+) {
+    let mut projection = query_camera.single_mut();
+    // zoom in
+    if button.just_pressed(KeyCode::Minus) {
+        projection.scale /= 1.25;
+    }
+    // zoom out
+    if button.just_pressed(KeyCode::Equal) {
+        projection.scale *= 1.25;
+    }
+}
+
+fn update_terrain_tile_picking(mut cmds: Commands, tiles_q: Query<Entity, Added<TerrainTile>>) {
+    fn recolor_on<E>(color: Color) -> impl Fn(Trigger<E>, Query<&mut Sprite>)
+    where
+        E: Clone + Reflect,
+    {
+        move |ev, mut sprites| {
+            let Ok(mut sprite) = sprites.get_mut(ev.entity()) else {
+                return;
+            };
+            sprite.color = color;
+        }
+    }
+    fn on_move() -> impl Fn(
+        Trigger<Pointer<Over>>,
+        ResMut<TerrainWorldDefault>,
+        Query<&GlobalTransform>,
+        Res<ButtonInput<MouseButton>>,
+        Res<EditorOptions>,
+    ) {
+        move |ev, mut terrain, global_transform_q, button, options| {
+            if !button.pressed(MouseButton::Left) || !options.brush.is_terrain() {
+                return;
+            }
+            let Ok(tile_transform) = global_transform_q.get(ev.entity()) else {
+                return;
+            };
+            let Some(terrain_pos) = terrain.coords_to_world(&tile_transform.translation().xy())
+            else {
+                return;
+            };
+            match options.brush {
+                BrushType::Terrain(Terrain::Grass) => {
+                    if let Ok(_) = terrain.set_to_grass(&terrain_pos) {
+                        return;
+                    } else {
+                        dbg!("errored while updating grass");
+                    };
+                }
+                BrushType::Terrain(Terrain::Sand) => {
+                    if let Ok(_) = terrain.set_to_sand(&terrain_pos) {
+                        return;
+                    } else {
+                        dbg!("errored while updating grass");
+                    };
+                }
+                _ => (),
+            }
+            // sprite.color = color;
+        }
+    }
+    for entity in &tiles_q {
+        cmds.entity(entity)
+            .observe(recolor_on::<Pointer<Over>>(GREEN.into()))
+            .observe(recolor_on::<Pointer<Out>>(Color::WHITE))
+            .observe(on_move());
+    }
     // we can use this entity for visual elements before writing any changes back to our terrain
     // world
 }
@@ -239,10 +308,11 @@ fn update_place_terrain(
     let Ok(window) = window_q.get_single() else {
         return;
     };
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
     for (camera, camera_transform) in camera_q.iter_mut() {
-        let Some(cursor_pos) = window.cursor_position() else {
-            return;
-        };
+        dbg!(&cursor_pos);
         let mut top_offset_logical_pixels = 0.;
         if let Some(logical_rect) = camera.logical_viewport_rect() {
             top_offset_logical_pixels = window.height() - logical_rect.height();
@@ -709,8 +779,8 @@ impl<S: States + FreelyMutableState, L: States + FreelyMutableState> Plugin for 
             (
                 update_editor_ui,
                 update_editor_menu,
-                update_place_terrain,
-                update_terrain_tile_selected,
+                update_terrain_tile_picking,
+                zoom_scale,
                 update_place_character,
                 update_block_camera_move_egui,
                 debug_nav_pathing,
