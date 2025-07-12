@@ -231,27 +231,43 @@ fn zoom_scale(
     }
 }
 
+fn on_exit_make_tiles_white(mut tiles_q: Query<&mut Sprite, With<TerrainTile>>) {
+    for mut sprite in tiles_q.iter_mut() {
+        if sprite.color == GREEN.into() {
+            sprite.color = Color::WHITE;
+        }
+    }
+}
+
 fn update_terrain_tile_picking(mut cmds: Commands, tiles_q: Query<Entity, Added<TerrainTile>>) {
-    fn recolor_on<E>(color: Color) -> impl Fn(Trigger<E>, Query<&mut Sprite>)
+    fn recolor_on<E>(
+        color: Color,
+    ) -> impl Fn(Trigger<E>, Query<&mut Sprite>, Res<State<InGameState>>)
     where
         E: Clone + Reflect,
     {
-        move |ev, mut sprites| {
+        move |ev, mut sprites, state| {
+            let state = state.get();
+            if *state != InGameState::InEditor {
+                return;
+            }
             let Ok(mut sprite) = sprites.get_mut(ev.entity()) else {
                 return;
             };
             sprite.color = color;
         }
     }
-    fn on_move() -> impl Fn(
-        Trigger<Pointer<Over>>,
+
+    fn on_click() -> impl Fn(
+        Trigger<Pointer<Down>>,
         ResMut<TerrainWorldDefault>,
         Query<&GlobalTransform>,
-        Res<ButtonInput<MouseButton>>,
         Res<EditorOptions>,
+        Res<State<InGameState>>,
     ) {
-        move |ev, mut terrain, global_transform_q, button, options| {
-            if !button.pressed(MouseButton::Left) || !options.brush.is_terrain() {
+        move |ev, mut terrain, global_transform_q, options, state| {
+            let state = state.get();
+            if *state != InGameState::InEditor || !options.brush.is_terrain() {
                 return;
             }
             let Ok(tile_transform) = global_transform_q.get(ev.entity()) else {
@@ -266,14 +282,57 @@ fn update_terrain_tile_picking(mut cmds: Commands, tiles_q: Query<Entity, Added<
                     if let Ok(_) = terrain.set_to_grass(&terrain_pos) {
                         return;
                     } else {
-                        dbg!("errored while updating grass");
+                        error!("errored while updating grass");
                     };
                 }
                 BrushType::Terrain(Terrain::Sand) => {
                     if let Ok(_) = terrain.set_to_sand(&terrain_pos) {
                         return;
                     } else {
-                        dbg!("errored while updating grass");
+                        error!("errored while updating grass");
+                    };
+                }
+                _ => (),
+            }
+        }
+    }
+
+    fn on_move() -> impl Fn(
+        Trigger<Pointer<Over>>,
+        ResMut<TerrainWorldDefault>,
+        Query<&GlobalTransform>,
+        Res<ButtonInput<MouseButton>>,
+        Res<EditorOptions>,
+        Res<State<InGameState>>,
+    ) {
+        move |ev, mut terrain, global_transform_q, button, options, state| {
+            let state = state.get();
+            if *state != InGameState::InEditor
+                || !button.pressed(MouseButton::Left)
+                || !options.brush.is_terrain()
+            {
+                return;
+            }
+            let Ok(tile_transform) = global_transform_q.get(ev.entity()) else {
+                return;
+            };
+            let Some(terrain_pos) = terrain.coords_to_world(&tile_transform.translation().xy())
+            else {
+                return;
+            };
+            match options.brush {
+                BrushType::Terrain(Terrain::Grass) => {
+                    if let Ok(_) = terrain.set_to_grass(&terrain_pos) {
+                        return;
+                    } else {
+                        error!("errored while updating grass");
+                    };
+                }
+                BrushType::Terrain(Terrain::Sand) => {
+                    if let Ok(_) = terrain.set_to_sand(&terrain_pos) {
+                        return;
+                    } else {
+                        error!("errored while updating grass");
                     };
                 }
                 _ => (),
@@ -285,6 +344,7 @@ fn update_terrain_tile_picking(mut cmds: Commands, tiles_q: Query<Entity, Added<
         cmds.entity(entity)
             .observe(recolor_on::<Pointer<Over>>(GREEN.into()))
             .observe(recolor_on::<Pointer<Out>>(Color::WHITE))
+            .observe(on_click())
             .observe(on_move());
     }
     // we can use this entity for visual elements before writing any changes back to our terrain
@@ -312,7 +372,6 @@ fn update_place_terrain(
         return;
     };
     for (camera, camera_transform) in camera_q.iter_mut() {
-        dbg!(&cursor_pos);
         let mut top_offset_logical_pixels = 0.;
         if let Some(logical_rect) = camera.logical_viewport_rect() {
             top_offset_logical_pixels = window.height() - logical_rect.height();
@@ -388,6 +447,9 @@ fn debug_nav_pathing(gizmos: Gizmos, navigation: Res<Navigation>) {
     navigation.debug(gizmos);
 }
 
+// todo: For redo and undo we basicaly need a stack (vec) of entities, get's more difficult with
+// tiles as they're actually a resource. We could change terrain to update itself based of the
+// entities though :think:
 fn update_editor_menu(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -408,11 +470,13 @@ fn update_editor_menu(
                     if ui.button("Open").clicked() {
                         if let Some(path) = rfd::FileDialog::new().pick_file() {
                             options.file_path = Some(path.clone());
-                            let root = DynamicSceneRoot(asset_server.load(path));
-                            commands.spawn(root);
+                            asset_server.reload(path.clone());
+                            commands.spawn(DynamicSceneRoot(asset_server.load(path)));
                         }
                     }
-                    if ui.button("Save").clicked() {
+                    let save_button = egui::Button::new("Save");
+                    let enabled = ui.add_enabled(options.file_path.is_some(), save_button);
+                    if enabled.clicked() {
                         next_ingame_state.set(InGameState::Saving);
                     }
                 })
@@ -533,7 +597,9 @@ fn cleanup_entities_on_exit(mut cmds: Commands, cleanup_q: Query<Entity, With<Ed
 }
 
 // will error on first usage
+// todo: Load from file if it exists
 fn load_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
+    asset_server.reload("embedded://scenes/editor.scn.ron");
     let root = DynamicSceneRoot(asset_server.load("embedded://scenes/editor.scn.ron"));
     commands.spawn(root);
 }
@@ -542,13 +608,17 @@ fn save_scene(world: &mut World) {
     let mut characters = world.query_filtered::<Entity, (With<Character>, Without<EditorOnly>)>();
     let scene = DynamicSceneBuilder::from_world(world)
         .deny_all_components()
+        .deny_all_resources()
+        .allow_resource::<TerrainWorldDefault>()
         .allow_component::<Character>()
         .allow_component::<Transform>()
         .extract_entities(characters.iter(&world))
+        .extract_resources()
         .build();
     let type_registry = world.resource::<AppTypeRegistry>().clone();
     let type_registry = type_registry.read();
     let serialized_scene = scene.serialize(&type_registry).unwrap();
+    dbg!(&serialized_scene);
     // Writing the scene to a new file. Using a task to avoid calling the filesystem APIs in a system
     // as they are blocking
     // This can't work in Wasm as there is no filesystem access
@@ -561,7 +631,6 @@ fn save_scene(world: &mut World) {
         #[cfg(not(target_arch = "wasm32"))]
         bevy::tasks::IoTaskPool::get()
             .spawn(async move {
-                // Write the scene RON data to file
                 File::create(path)
                     .and_then(|mut file| file.write(serialized_scene.as_bytes()))
                     .expect("Error while writing scene to file");
@@ -578,20 +647,21 @@ fn store_scene(world: &mut World) {
     let mut characters = world.query_filtered::<Entity, (With<Character>, Without<EditorOnly>)>();
     let scene = DynamicSceneBuilder::from_world(world)
         .deny_all_components()
+        .deny_all_resources()
+        .allow_resource::<TerrainWorldDefault>()
         .allow_component::<Character>()
         .allow_component::<Transform>()
         .extract_entities(characters.iter(&world))
+        .extract_resources()
         .build();
     let type_registry = world.resource::<AppTypeRegistry>().clone();
     let type_registry = type_registry.read();
     let serialized_scene = scene.serialize(&type_registry).unwrap();
-    // Writing the scene to a new file. Using a task to avoid calling the filesystem APIs in a system
-    // as they are blocking
-    // This can't work in Wasm as there is no filesystem access
-    let asset_registry = world.get_resource_mut::<EmbeddedAssetRegistry>().unwrap();
     dbg!(&serialized_scene);
+    let asset_registry = world.get_resource_mut::<EmbeddedAssetRegistry>().unwrap();
+    asset_registry.remove_asset(&PathBuf::from("embedded://scenes/editor.scn.ron"));
     asset_registry.insert_asset(
-        PathBuf::from(""),
+        PathBuf::from("embedded://scenes/editor.scn.ron"),
         &PathBuf::from("scenes/editor.scn.ron"),
         serialized_scene.bytes().collect::<Vec<_>>(),
     );
@@ -758,17 +828,8 @@ impl<S: States + FreelyMutableState, L: States + FreelyMutableState> Plugin for 
             LoadingStateConfig::new(self.loading_state.clone()).load_collection::<EditorAssets>(),
         )
         .register_type::<Transform>()
-        .add_plugins(EguiPlugin)
         .init_resource::<EditorOptions>()
-        .add_systems(
-            OnExit(self.state.clone()),
-            (
-                store_scene,
-                cleanup_entities_on_exit,
-                on_exit_camera_full_window,
-            )
-                .chain(),
-        )
+        .add_plugins(EguiPlugin)
         .add_systems(
             OnEnter(self.state.clone()),
             (cleanup_entities_on_enter, load_scene).chain(),
@@ -786,6 +847,16 @@ impl<S: States + FreelyMutableState, L: States + FreelyMutableState> Plugin for 
                 debug_nav_pathing,
             )
                 .run_if(in_state(self.state.clone())),
+        )
+        .add_systems(
+            OnExit(self.state.clone()),
+            (
+                store_scene,
+                cleanup_entities_on_exit,
+                on_exit_camera_full_window,
+                on_exit_make_tiles_white,
+            )
+                .chain(),
         );
     }
 }

@@ -39,7 +39,7 @@ impl<S: States> CameraPlugin<S> {
 
 fn setup_game_camera(mut cmds: Commands) {
     cmds.spawn((
-        Transform::from_translation(Vec3::new(1000., 1000., 0.)),
+        Transform::from_translation(Vec3::new(0., 0., 0.)),
         Camera2d,
         Msaa::Off,
         MainCamera {

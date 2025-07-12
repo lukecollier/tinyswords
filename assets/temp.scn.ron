@@ -1,65 +1,8 @@
 (
-  resources: {},
-  entities: {
-    4294967465: (
-      components: {
-        "bevy_transform::components::transform::Transform": (
-          translation: (768.0691, 520.769, 100.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-        "tinyswords::characters::Character": Pawn,
-      },
-    ),
-    4294967466: (
-      components: {
-        "bevy_transform::components::transform::Transform": (
-          translation: (629.9756, 579.3525, 100.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-        "tinyswords::characters::Character": Pawn,
-      },
-    ),
-    4294967467: (
-      components: {
-        "bevy_transform::components::transform::Transform": (
-          translation: (748.53204, 613.20917, 100.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-        "tinyswords::characters::Character": Pawn,
-      },
-    ),
-    4294967468: (
-      components: {
-        "bevy_transform::components::transform::Transform": (
-          translation: (768.0691, 520.769, 100.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-        "tinyswords::characters::Character": Pawn,
-      },
-    ),
-    8589934603: (
-      components: {
-        "bevy_transform::components::transform::Transform": (
-          translation: (629.9756, 579.3525, 100.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-        "tinyswords::characters::Character": Pawn,
-      },
-    ),
-    12884901988: (
-      components: {
-        "bevy_transform::components::transform::Transform": (
-          translation: (748.53204, 613.20917, 100.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-        "tinyswords::characters::Character": Pawn,
-      },
+  resources: {
+    "tinyswords::terrain::TerrainWorld<8>": (
+      map: ((16, 16, 16, 16, 16, 16, 16, 16), (32, 32, 32, 16, 32, 32, 32, 16), (16, 32, 16, 16, 32, 16, 16, 16), (32, 16, 32, 16, 16, 16, 16, 16), (16, 16, 16, 16, 16, 16, 16, 16), (32, 32, 32, 32, 32, 32, 32, 16), (16, 32, 16, 32, 32, 16, 16, 16), (16, 32, 16, 32, 32, 32, 32, 16)),
     ),
   },
+  entities: {},
 )

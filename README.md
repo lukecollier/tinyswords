@@ -7,6 +7,9 @@
 
 # IN PROGRESS - A tile based map system.
 [x] - Add sand
+[x] - Add auto tiling
+[ ] - Avian coliders for path finding
+[ ] - Physics for cliff's maybe?
 [ ] - Add animated sea foam
-[ ] - Add grass
+[x] - Add grass
 [ ] - Add cliffs / mountains

@@ -3,11 +3,10 @@ use bevy::{
     prelude::*,
     render::render_resource::{AsBindGroup, ShaderRef},
     sprite::{Anchor, Material2d, Material2dPlugin},
-    utils::HashMap,
 };
 use bevy_asset_loader::prelude::*;
 
-pub const WORLD_SIZE: usize = 32;
+pub const WORLD_SIZE: usize = 1024;
 pub const TILE_SIZE_F32: f32 = 64.0;
 pub const TILE_EDGE_BUFFER: f32 = TILE_SIZE_F32;
 pub const TILE_SIZE_U32: u32 = 64;
@@ -44,6 +43,8 @@ impl<S: States + bevy::state::state::FreelyMutableState> Plugin for TerrainPlugi
         )
         .add_plugins(Material2dPlugin::<WaterMaterial>::default())
         .insert_resource(TerrainWorld::<WORLD_SIZE>::empty())
+        .init_asset::<TerrainWorldDefault>()
+        .register_type::<TerrainWorldDefault>()
         .add_systems(OnEnter(self.state.clone()), on_enter_water)
         .add_systems(OnExit(self.state.clone()), on_exit_water)
         .add_systems(
@@ -63,19 +64,12 @@ impl<S: States> TerrainPlugin<S> {
     }
 }
 
-// todo: Is this a better way for us to interact across systems? Our
-#[derive(Resource)]
-pub struct TerrainModifyOptions {
-    placing: Terrain,
-}
-
 pub type TerrainWorldDefault = TerrainWorld<WORLD_SIZE>;
 
-// So the reason we duplicate the data in vert and horizontal is so we can
-// quickly access the the neighbours for and find the right tile combinations when we load the map
-// in
-#[derive(Resource)]
+#[derive(Resource, Reflect, Debug, Asset)]
+#[reflect(Resource)]
 pub struct TerrainWorld<const N: usize> {
+    // can be improved by storing two tiles in every byte
     map: [[u8; N]; N],
 }
 
@@ -159,8 +153,6 @@ impl<const N: usize> TerrainWorld<N> {
         !Self::in_bounds(x, y)
     }
 
-    // todo: How do we handle the edges of the map?
-    // todo: Can we just reference slices from our map?
     fn get_neighbours(&self, pos: &UVec2) -> [Option<&u8>; 4] {
         let x = pos.x as usize;
         let y = pos.y as usize;
@@ -325,15 +317,20 @@ fn update_ecs_when_world_changes(
     mut commands: Commands,
     terrain: Res<TerrainWorldDefault>,
     assets: Res<TerrainAssets>,
-    mut tile_q: Query<(Entity, &mut TerrainTile, &mut Sprite, &Transform)>,
+    mut tile_q: Query<(Entity, &mut TerrainTile, &Transform)>,
+    children_q: Query<&Children>,
+    mut sprite_q: Query<&mut Sprite>,
 ) {
     if terrain.is_changed() {
         // todo: Handle water as a special case, we don't store water in our ecs so we need to do
         // something special
         // todo: If our tile is currently a water tile we won't change it, we need to spawn a new
         // tile :think:
-        for (entity, mut terrain_tile, mut sprite, transform) in tile_q.iter_mut() {
+        for (entity, mut terrain_tile, transform) in tile_q.iter_mut() {
             let Some(pos) = terrain.coords_to_world(&transform.translation.truncate()) else {
+                continue;
+            };
+            let Ok(ref mut sprite) = sprite_q.get_mut(entity) else {
                 continue;
             };
             if let Some(candidate_tile) = terrain.get_tile_from(&pos) {
@@ -342,24 +339,6 @@ fn update_ecs_when_world_changes(
                     terrain_tile.height = candidate_tile.height;
                     let image = assets.tile_to_image(&terrain_tile);
                     sprite.image = image;
-                    if terrain_tile.terrain == Terrain::Grass && terrain.get_bitmask_sand(&pos) > 0
-                    {
-                        let sand_bitmask = terrain.get_bitmask_sand(&pos);
-                        let index = TerrainAssets::index_from_bitmask(sand_bitmask);
-                        let texture_atlas = TextureAtlas {
-                            layout: assets.land_layout.clone(),
-                            index,
-                        };
-                        // todo: We need to spawn a sand texture as a child under our grass if we're at
-                        // a border of grass and sand. The texture should just be the middle piece of
-                        // sand.
-                        let mut sprite =
-                            Sprite::from_atlas_image(assets.sand_texture.clone(), texture_atlas);
-                        sprite.anchor = Anchor::BottomLeft;
-                        commands.entity(entity).with_children(|parent| {
-                            parent.spawn((sprite, Transform::from_xyz(0., 0., -1.)));
-                        });
-                    }
                 }
             }
             if let Some(ref mut texture_atlas) = sprite.texture_atlas {
@@ -367,20 +346,57 @@ fn update_ecs_when_world_changes(
                 let index = TerrainAssets::index_from_bitmask(bitmask);
                 texture_atlas.index = index;
             }
+            // this tells us if our tile has multiple layers.
+            if let Ok(children) = children_q.get(entity) {
+                let sand_bitmask = terrain.get_bitmask_sand(&pos);
+                if sand_bitmask == 0 {
+                    commands.entity(entity).remove_children(children);
+                } else {
+                    let index = TerrainAssets::index_from_bitmask(sand_bitmask);
+                    for child in children {
+                        let Ok(ref mut sprite) = sprite_q.get_mut(*child) else {
+                            continue;
+                        };
+                        let Some(ref mut texture_atlas) = sprite.texture_atlas else {
+                            continue;
+                        };
+                        texture_atlas.index = index;
+                    }
+                }
+            } else {
+                if terrain_tile.terrain == Terrain::Grass && terrain.get_bitmask_sand(&pos) > 0 {
+                    let sand_bitmask = terrain.get_bitmask_sand(&pos);
+                    let index = TerrainAssets::index_from_bitmask(sand_bitmask);
+                    let texture_atlas = TextureAtlas {
+                        layout: assets.land_layout.clone(),
+                        index,
+                    };
+                    let mut sprite =
+                        Sprite::from_atlas_image(assets.sand_texture.clone(), texture_atlas);
+                    sprite.anchor = Anchor::BottomLeft;
+                    commands.entity(entity).with_children(|parent| {
+                        parent.spawn((sprite, Transform::from_xyz(0., 0., -1.)));
+                    });
+                }
+            };
         }
     }
 }
 
 // todo: If grass spawns next to sand it should spawn a sand image underneath it as well.
+// todo: We probably need to handle the inverse, added tile components should update the terrain
+// world right? That way the editor can be just using the ECS to update the terrain, blissfully
+// unaware of the array backing it.
 fn update_load_world_to_ecs(
     mut commands: Commands,
     terrain: ResMut<TerrainWorldDefault>,
     assets: Res<TerrainAssets>,
-    camera_q: Single<(&Camera, &GlobalTransform, &OrthographicProjection), Changed<Transform>>,
+    camera_q: Query<(&Camera, &GlobalTransform, &OrthographicProjection), Changed<Transform>>,
     tile_q: Query<(Entity, &Transform), With<TerrainTile>>,
 ) {
-    let (camera, camera_transform, projection) = camera_q.into_inner();
-    dbg!(projection.area, camera_transform);
+    let Ok((camera, camera_transform, projection)) = camera_q.get_single() else {
+        return;
+    };
     if let Some(rect) = camera.logical_viewport_rect() {
         let rect = Rect::from_corners(rect.min * projection.scale, rect.max * projection.scale);
         if rect.min.x >= 0. && rect.min.y >= 0. && rect.max.x >= 0. && rect.max.y >= 0. {
@@ -420,9 +436,6 @@ fn update_load_world_to_ecs(
                             layout: assets.land_layout.clone(),
                             index,
                         };
-                        // todo: We need to spawn a sand texture as a child under our grass if we're at
-                        // a border of grass and sand. The texture should just be the middle piece of
-                        // sand.
                         let mut sprite =
                             Sprite::from_atlas_image(assets.sand_texture.clone(), texture_atlas);
                         sprite.anchor = Anchor::BottomLeft;
@@ -467,16 +480,13 @@ fn on_enter_water(
     let size = TILE_SIZE_F32 * WORLD_SIZE as f32;
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(size, size)).into()),
-        MeshMaterial2d(materials.add(WaterMaterial {
-            color: Color::srgb(7.5, 0.0, 7.5),
-        })),
+        MeshMaterial2d(materials.add(WaterMaterial {})),
         Transform::from_xyz(size / 2., size / 2., -100.),
         Water,
     ));
 }
 
 fn on_exit_water(mut commands: Commands, water_q: Single<Entity, With<Water>>) {
-    let size = TILE_SIZE_F32 * WORLD_SIZE as f32;
     let entity = water_q.into_inner();
     commands.entity(entity).despawn_recursive();
 }
@@ -561,9 +571,7 @@ impl TerrainAssets {
     }
 }
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
-struct WaterMaterial {
-    color: Color,
-}
+struct WaterMaterial {}
 
 impl Material2d for WaterMaterial {
     fn fragment_shader() -> ShaderRef {
