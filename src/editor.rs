@@ -1,22 +1,22 @@
-use std::{fs::File, io::Write, path::PathBuf};
+use std::{fs::File, path::PathBuf};
 
 use crate::{
     camera::MainCamera,
     characters::{Character, CharacterAssets},
-    nav::{NavBundle, Navigation},
+    nav::Navigation,
     terrain::{TerrainTile, TerrainWorldDefault},
-    world::{TileMap, WorldAssets, TILE_SIZE, TILE_VEC, WORLD_SIZE},
     InGameState,
 };
 use bevy::{
-    asset::io::embedded::EmbeddedAssetRegistry, color::palettes::css::GREEN, prelude::*,
-    render::camera::Viewport, state::state::FreelyMutableState, winit::WinitWindows,
+    color::palettes::css::GREEN, prelude::*, render::camera::Viewport, scene::InstanceId,
+    state::state::FreelyMutableState, tasks::IoTaskPool, winit::WinitWindows,
 };
 use bevy_asset_loader::prelude::*;
 use bevy_egui::{
     egui::{self, text::LayoutJob},
     EguiContexts, EguiPlugin,
 };
+use std::io::Write;
 
 #[derive(AssetCollection, Resource)]
 pub struct EditorAssets {
@@ -75,13 +75,9 @@ struct EditorOptions {
     brush_shape: PaintShape,
     brush: BrushType,
     is_mouse_on_ui: bool,
+    scene: Handle<DynamicScene>,
+    scene_instance_id: Option<InstanceId>,
 }
-
-#[derive(Component)]
-struct CharacterShadow;
-
-#[derive(Component)]
-struct EditorOnly;
 
 impl Default for EditorOptions {
     fn default() -> Self {
@@ -94,6 +90,159 @@ impl Default for EditorOptions {
             brush_shape: PaintShape::Square,
             brush: BrushType::None,
             is_mouse_on_ui: false,
+            scene: Handle::default(),
+            scene_instance_id: None,
+        }
+    }
+}
+
+// get's serialized and maintained across edits
+#[derive(Resource, Reflect, Default)]
+#[reflect(Resource)]
+struct EditorStore {
+    last_editor_id: usize,
+    undo_log: Vec<EditorActions>,
+}
+
+impl EditorStore {
+    // used to maintain the undo log across scenes
+    fn next_id(&mut self) -> EditorId {
+        self.last_editor_id += 1;
+        EditorId(self.last_editor_id)
+    }
+}
+
+#[derive(Component)]
+struct CharacterShadow;
+
+#[derive(Component)]
+struct EditorOnly;
+
+// todo: This is messy, handles the first time we spawn characters before their part of a scene
+// instance
+#[derive(Component)]
+struct CleanupCharacters;
+
+#[derive(Component, Eq, PartialEq, Clone, Copy, Reflect, Debug)]
+#[reflect(Component)]
+struct EditorId(usize);
+
+#[derive(Event, Reflect, Debug)]
+struct EditorCommands {
+    undo: bool,
+    action: EditorActions,
+}
+
+impl EditorCommands {
+    fn can_undo(action: EditorActions) -> Self {
+        Self { undo: true, action }
+    }
+
+    fn cant_undo(action: EditorActions) -> Self {
+        Self {
+            undo: false,
+            action,
+        }
+    }
+}
+// Allows for backtracking and forwarding
+// as a hack we can push the opposite action to the undo history
+// so if we placed a character, undoing would delete the character
+// then we simply pop and send the event to our command
+#[derive(Event, Reflect, Debug)]
+enum EditorActions {
+    CreateCharacter {
+        position: Vec3,
+        character: Character,
+    },
+    // The character deleted
+    DeleteCharacter(EditorId),
+    // for undo we send a command that will update the terrain
+    UpdateTerrain {
+        position: UVec2,
+        new_terrain_type: Terrain,
+    },
+}
+
+fn update_handle_editor_actions(
+    mut cmds: Commands,
+    mut ev_actions: EventReader<EditorCommands>,
+    mut terrain: ResMut<TerrainWorldDefault>,
+    mut store: ResMut<EditorStore>,
+    editor_q: Query<(Entity, &EditorId)>,
+    character_assets: Res<CharacterAssets>,
+) {
+    for ev in ev_actions.read() {
+        match &ev.action {
+            EditorActions::CreateCharacter {
+                position,
+                character,
+            } => {
+                let id = store.next_id();
+                cmds.spawn((
+                    *character,
+                    character.animated_sprite(&character_assets),
+                    CleanupCharacters,
+                    id,
+                    Transform::from_translation(*position),
+                ));
+                if ev.undo {
+                    store
+                        .undo_log
+                        .push(EditorActions::DeleteCharacter(id.clone()));
+                }
+            }
+            EditorActions::DeleteCharacter(id) => {
+                let (entity, _) = editor_q
+                    .iter()
+                    .find(|(_, q_id)| *q_id == id)
+                    .expect("couldn't find editor entity :(");
+                cmds.entity(entity).despawn_recursive();
+            }
+            EditorActions::UpdateTerrain {
+                position,
+                new_terrain_type,
+            } => {
+                if let Some(prev_tile) = terrain.get_tile_from(&position) {
+                    let prev_terrain = match prev_tile.terrain {
+                        crate::terrain::Terrain::Sand => Terrain::Sand,
+                        crate::terrain::Terrain::Grass => Terrain::Grass,
+                        crate::terrain::Terrain::Water => Terrain::Water,
+                    };
+                    if ev.undo {
+                        store.undo_log.push(EditorActions::UpdateTerrain {
+                            position: *position,
+                            new_terrain_type: prev_terrain,
+                        });
+                    }
+                }
+                match new_terrain_type {
+                    Terrain::Grass => {
+                        if let Ok(_) = terrain.set_to_grass(position) {
+                            return;
+                        } else {
+                            error!("errored while updating sand");
+                        };
+                    }
+                    Terrain::Water => {
+                        if let Ok(_) = terrain.set_to_water(position) {
+                            return;
+                        } else {
+                            error!("errored while updating sand");
+                        };
+                    }
+                    Terrain::Sand => {
+                        if let Ok(_) = terrain.set_to_sand(position) {
+                            return;
+                        } else {
+                            error!("errored while updating sand");
+                        };
+                    }
+                    Terrain::Rock => todo!(),
+                    Terrain::Steps => todo!(),
+                }
+            }
+            action => warn!("not yet implemented action used: {action:?}"),
         }
     }
 }
@@ -114,6 +263,8 @@ fn update_block_camera_move_egui(
     }
 }
 
+//todo: We should use events so we can log every change made in the editor and rollback (or even
+//more fun play a timelapse of the level being made!)
 fn update_place_character(
     mut cmds: Commands,
     window_q: Query<&Window>,
@@ -126,6 +277,7 @@ fn update_place_character(
     options: ResMut<EditorOptions>,
     pathing: Res<Navigation>,
     character_assets: Res<CharacterAssets>,
+    mut ev: EventWriter<EditorCommands>,
 ) {
     if !options.brush.is_character() || options.is_mouse_on_ui {
         for (entity, _, _, _) in &character_shadow_q {
@@ -199,14 +351,12 @@ fn update_place_character(
                                 transform.translation.truncate()
                                     + Vec2::Y * top_offset_logical_pixels,
                             ) {
-                                cmds.spawn((
-                                    template.clone(),
-                                    template.animated_sprite(&character_assets),
-                                    Transform::from_translation(
-                                        (world_cursor_pos + Vec2::Y * top_offset_logical_pixels)
-                                            .extend(100.),
-                                    ),
-                                ));
+                                let pos = (world_cursor_pos + Vec2::Y * top_offset_logical_pixels)
+                                    .extend(100.);
+                                ev.send(EditorCommands::can_undo(EditorActions::CreateCharacter {
+                                    position: pos,
+                                    character: template.clone(),
+                                }));
                             }
                         }
                     }
@@ -260,12 +410,13 @@ fn update_terrain_tile_picking(mut cmds: Commands, tiles_q: Query<Entity, Added<
 
     fn on_click() -> impl Fn(
         Trigger<Pointer<Down>>,
-        ResMut<TerrainWorldDefault>,
+        Res<TerrainWorldDefault>,
+        EventWriter<EditorCommands>,
         Query<&GlobalTransform>,
         Res<EditorOptions>,
         Res<State<InGameState>>,
     ) {
-        move |ev, mut terrain, global_transform_q, options, state| {
+        move |ev, terrain, mut actions, global_transform_q, options, state| {
             let state = state.get();
             if *state != InGameState::InEditor || !options.brush.is_terrain() {
                 return;
@@ -278,19 +429,11 @@ fn update_terrain_tile_picking(mut cmds: Commands, tiles_q: Query<Entity, Added<
                 return;
             };
             match options.brush {
-                BrushType::Terrain(Terrain::Grass) => {
-                    if let Ok(_) = terrain.set_to_grass(&terrain_pos) {
-                        return;
-                    } else {
-                        error!("errored while updating grass");
-                    };
-                }
-                BrushType::Terrain(Terrain::Sand) => {
-                    if let Ok(_) = terrain.set_to_sand(&terrain_pos) {
-                        return;
-                    } else {
-                        error!("errored while updating grass");
-                    };
+                BrushType::Terrain(terrain_type) => {
+                    actions.send(EditorCommands::can_undo(EditorActions::UpdateTerrain {
+                        position: terrain_pos,
+                        new_terrain_type: terrain_type,
+                    }));
                 }
                 _ => (),
             }
@@ -299,13 +442,14 @@ fn update_terrain_tile_picking(mut cmds: Commands, tiles_q: Query<Entity, Added<
 
     fn on_move() -> impl Fn(
         Trigger<Pointer<Over>>,
-        ResMut<TerrainWorldDefault>,
+        Res<TerrainWorldDefault>,
+        EventWriter<EditorCommands>,
         Query<&GlobalTransform>,
         Res<ButtonInput<MouseButton>>,
         Res<EditorOptions>,
         Res<State<InGameState>>,
     ) {
-        move |ev, mut terrain, global_transform_q, button, options, state| {
+        move |ev, terrain, mut actions, global_transform_q, button, options, state| {
             let state = state.get();
             if *state != InGameState::InEditor
                 || !button.pressed(MouseButton::Left)
@@ -321,19 +465,11 @@ fn update_terrain_tile_picking(mut cmds: Commands, tiles_q: Query<Entity, Added<
                 return;
             };
             match options.brush {
-                BrushType::Terrain(Terrain::Grass) => {
-                    if let Ok(_) = terrain.set_to_grass(&terrain_pos) {
-                        return;
-                    } else {
-                        error!("errored while updating grass");
-                    };
-                }
-                BrushType::Terrain(Terrain::Sand) => {
-                    if let Ok(_) = terrain.set_to_sand(&terrain_pos) {
-                        return;
-                    } else {
-                        error!("errored while updating grass");
-                    };
+                BrushType::Terrain(terrain_type) => {
+                    actions.send(EditorCommands::can_undo(EditorActions::UpdateTerrain {
+                        position: terrain_pos,
+                        new_terrain_type: terrain_type,
+                    }));
                 }
                 _ => (),
             }
@@ -351,98 +487,6 @@ fn update_terrain_tile_picking(mut cmds: Commands, tiles_q: Query<Entity, Added<
     // world
 }
 
-fn update_place_terrain(
-    mut cmds: Commands,
-    window_q: Query<&Window>,
-    mut camera_q: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    // todo: Find the tile that already exists and update
-    mouse_button: Res<ButtonInput<MouseButton>>,
-    options: ResMut<EditorOptions>,
-    tile_map: ResMut<TileMap>,
-    world_assets: Res<WorldAssets>,
-    mut gizmos: Gizmos,
-) {
-    if !options.brush.is_terrain() || options.is_mouse_on_ui {
-        return;
-    }
-    let Ok(window) = window_q.get_single() else {
-        return;
-    };
-    let Some(cursor_pos) = window.cursor_position() else {
-        return;
-    };
-    for (camera, camera_transform) in camera_q.iter_mut() {
-        let mut top_offset_logical_pixels = 0.;
-        if let Some(logical_rect) = camera.logical_viewport_rect() {
-            top_offset_logical_pixels = window.height() - logical_rect.height();
-            if !logical_rect.contains(cursor_pos) {
-                break;
-            };
-        };
-        let Ok(world_cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else {
-            return;
-        };
-        let tile_pos = ((world_cursor_pos + Vec2::Y * top_offset_logical_pixels) / TILE_VEC)
-            .floor()
-            .as_u16vec2();
-
-        // todo(improvement): Should be two squares, one at elevation 0 and one at the selected
-        // elevation
-        gizmos.rect_2d(
-            tile_pos.as_vec2() * TILE_VEC + (TILE_VEC / 2.0)
-                - (Vec2::Y * options.brush_size as f32) / 2.0,
-            TILE_VEC * Vec2::new(1.0, 1.0 as f32) * options.brush_size as f32,
-            bevy::color::palettes::css::GREEN,
-        );
-
-        if mouse_button.pressed(MouseButton::Left) {
-            let place_size = options.brush_size as u16;
-            for x in 0..place_size {
-                for y in 0..place_size {
-                    let p_x = (tile_pos.x + x) as i32 - place_size as i32 / 2;
-                    let p_y = (tile_pos.y + y) as i32 - place_size as i32 / 2;
-                    if p_x >= 0 as i32
-                        && p_y >= 0 as i32
-                        && p_x < WORLD_SIZE.x as i32
-                        && p_y < WORLD_SIZE.y as i32
-                        && !tile_map.contains(p_x, p_y)
-                    {
-                        match options.brush {
-                            BrushType::Terrain(_) if options.elevation > 0 => {
-                                world_assets.spawn_empty(
-                                    &mut cmds,
-                                    p_x as u16,
-                                    p_y as u16,
-                                    options.elevation,
-                                );
-                            }
-                            BrushType::Terrain(Terrain::Sand) if options.elevation == 0 => {
-                                cmds.spawn(NavBundle::allowed(
-                                    p_x as f32 * TILE_SIZE,
-                                    p_y as f32 * TILE_SIZE,
-                                    TILE_SIZE,
-                                    TILE_SIZE,
-                                ));
-                                world_assets.spawn_sand(&mut cmds, p_x as u16, p_y as u16, 0);
-                            }
-                            BrushType::Terrain(Terrain::Grass) if options.elevation == 0 => {
-                                cmds.spawn(NavBundle::allowed(
-                                    p_x as f32 * TILE_SIZE,
-                                    p_y as f32 * TILE_SIZE,
-                                    TILE_SIZE,
-                                    TILE_SIZE,
-                                ));
-                                world_assets.spawn_grass(&mut cmds, p_x as u16, p_y as u16, 0);
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 fn debug_nav_pathing(gizmos: Gizmos, navigation: Res<Navigation>) {
     navigation.debug(gizmos);
 }
@@ -451,14 +495,14 @@ fn debug_nav_pathing(gizmos: Gizmos, navigation: Res<Navigation>) {
 // tiles as they're actually a resource. We could change terrain to update itself based of the
 // entities though :think:
 fn update_editor_menu(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
     mut contexts: EguiContexts,
     mut options: ResMut<EditorOptions>,
+    mut store: ResMut<EditorStore>,
     window_q: Query<&Window>,
     mut camera_q: Query<&mut Camera, With<MainCamera>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut next_ingame_state: ResMut<NextState<InGameState>>,
+    mut ev: EventWriter<EditorCommands>,
     // fixes rfd forcing running on the main thread
     mut _windows: NonSend<WinitWindows>,
 ) {
@@ -466,21 +510,47 @@ fn update_editor_menu(
     let logical_height = TopBottomPanel::top("top_panel")
         .show(contexts.ctx_mut(), |ui| {
             menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Open").clicked() {
-                        if let Some(path) = rfd::FileDialog::new().pick_file() {
-                            options.file_path = Some(path.clone());
-                            asset_server.reload(path.clone());
-                            commands.spawn(DynamicSceneRoot(asset_server.load(path)));
-                        }
+                let mut layout_job = LayoutJob::default();
+                RichText::new("O").color(Color32::YELLOW).append_to(
+                    &mut layout_job,
+                    &ui.style(),
+                    FontSelection::Default,
+                    Align::Center,
+                );
+                RichText::new("pen").color(Color32::LIGHT_GRAY).append_to(
+                    &mut layout_job,
+                    &ui.style(),
+                    FontSelection::Default,
+                    Align::Center,
+                );
+                if ui.button(layout_job).clicked()
+                    || (keyboard_input.just_pressed(KeyCode::KeyO)
+                        && keyboard_input.pressed(KeyCode::ControlLeft))
+                {
+                    if let Some(path) = rfd::FileDialog::new().pick_file() {
+                        // todo: this should be done via the loading state
+                        options.file_path = Some(path.clone());
+                        next_ingame_state.set(InGameState::Loading);
                     }
-                    let save_button = egui::Button::new("Save");
-                    let enabled = ui.add_enabled(options.file_path.is_some(), save_button);
-                    if enabled.clicked() {
-                        next_ingame_state.set(InGameState::Saving);
-                    }
-                })
-                .response;
+                }
+                let mut layout_job = LayoutJob::default();
+                RichText::new("S").color(Color32::YELLOW).append_to(
+                    &mut layout_job,
+                    &ui.style(),
+                    FontSelection::Default,
+                    Align::Center,
+                );
+                RichText::new("ave").color(Color32::LIGHT_GRAY).append_to(
+                    &mut layout_job,
+                    &ui.style(),
+                    FontSelection::Default,
+                    Align::Center,
+                );
+                let save_button = egui::Button::new(layout_job);
+                let enabled = ui.add_enabled(options.file_path.is_some(), save_button);
+                if enabled.clicked() {
+                    next_ingame_state.set(InGameState::Saving);
+                }
                 let mut layout_job = LayoutJob::default();
                 RichText::new("T").color(Color32::YELLOW).append_to(
                     &mut layout_job,
@@ -517,6 +587,25 @@ fn update_editor_menu(
                     || keyboard_input.just_pressed(KeyCode::KeyP)
                 {
                     next_ingame_state.set(InGameState::Running);
+                }
+
+                let mut undo_layout = LayoutJob::default();
+                RichText::new("U").color(Color32::YELLOW).append_to(
+                    &mut undo_layout,
+                    &ui.style(),
+                    FontSelection::Default,
+                    Align::Center,
+                );
+                RichText::new("undo").color(Color32::LIGHT_GRAY).append_to(
+                    &mut undo_layout,
+                    &ui.style(),
+                    FontSelection::Default,
+                    Align::Center,
+                );
+                if ui.button(undo_layout).clicked() || keyboard_input.just_pressed(KeyCode::KeyU) {
+                    if let Some(undo_entry) = store.undo_log.pop() {
+                        ev.send(EditorCommands::cant_undo(undo_entry));
+                    }
                 }
 
                 let mut layout_job_characters = LayoutJob::default();
@@ -580,94 +669,29 @@ fn on_exit_camera_full_window(
     }
 }
 
-#[derive(Component, Eq, PartialEq, Clone, Copy)]
+#[derive(Component, Reflect, Eq, PartialEq, Clone, Copy, Debug)]
 enum Terrain {
     Grass,
+    Water,
     Sand,
     Rock,
     Steps,
 }
 
-fn cleanup_entities_on_exit(mut cmds: Commands, cleanup_q: Query<Entity, With<EditorOnly>>) {
-    for cleanup_entity in &cleanup_q {
-        if let Some(found_entity) = cmds.get_entity(cleanup_entity) {
-            found_entity.despawn_recursive();
-        }
+// todo: The first timne we spawn characters they don't belong to a scene :(
+fn despawn_characters(mut cmds: Commands, q: Query<Entity, With<Character>>) {
+    for entity in &q {
+        cmds.entity(entity).despawn_recursive();
     }
 }
 
-// will error on first usage
-// todo: Load from file if it exists
-fn load_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
-    asset_server.reload("embedded://scenes/editor.scn.ron");
-    let root = DynamicSceneRoot(asset_server.load("embedded://scenes/editor.scn.ron"));
-    commands.spawn(root);
+fn cleanup_entities_on_enter(mut scene_spawner: ResMut<SceneSpawner>, options: Res<EditorOptions>) {
+    if let Some(id) = options.scene_instance_id {
+        scene_spawner.despawn_instance(id);
+    }
 }
 
-fn save_scene(world: &mut World) {
-    let mut characters = world.query_filtered::<Entity, (With<Character>, Without<EditorOnly>)>();
-    let scene = DynamicSceneBuilder::from_world(world)
-        .deny_all_components()
-        .deny_all_resources()
-        .allow_resource::<TerrainWorldDefault>()
-        .allow_component::<Character>()
-        .allow_component::<Transform>()
-        .extract_entities(characters.iter(&world))
-        .extract_resources()
-        .build();
-    let type_registry = world.resource::<AppTypeRegistry>().clone();
-    let type_registry = type_registry.read();
-    let serialized_scene = scene.serialize(&type_registry).unwrap();
-    dbg!(&serialized_scene);
-    // Writing the scene to a new file. Using a task to avoid calling the filesystem APIs in a system
-    // as they are blocking
-    // This can't work in Wasm as there is no filesystem access
-    if let Some(path) = world
-        .get_resource::<EditorOptions>()
-        .unwrap()
-        .file_path
-        .clone()
-    {
-        #[cfg(not(target_arch = "wasm32"))]
-        bevy::tasks::IoTaskPool::get()
-            .spawn(async move {
-                File::create(path)
-                    .and_then(|mut file| file.write(serialized_scene.as_bytes()))
-                    .expect("Error while writing scene to file");
-            })
-            .detach();
-    };
-    let mut next_state = world.get_resource_mut::<NextState<InGameState>>().unwrap();
-    next_state.set(InGameState::InEditor);
-}
-
-// todo: we can store the scene in memory while editing and offer a different option for saving to
-// a file.
-fn store_scene(world: &mut World) {
-    let mut characters = world.query_filtered::<Entity, (With<Character>, Without<EditorOnly>)>();
-    let scene = DynamicSceneBuilder::from_world(world)
-        .deny_all_components()
-        .deny_all_resources()
-        .allow_resource::<TerrainWorldDefault>()
-        .allow_component::<Character>()
-        .allow_component::<Transform>()
-        .extract_entities(characters.iter(&world))
-        .extract_resources()
-        .build();
-    let type_registry = world.resource::<AppTypeRegistry>().clone();
-    let type_registry = type_registry.read();
-    let serialized_scene = scene.serialize(&type_registry).unwrap();
-    dbg!(&serialized_scene);
-    let asset_registry = world.get_resource_mut::<EmbeddedAssetRegistry>().unwrap();
-    asset_registry.remove_asset(&PathBuf::from("embedded://scenes/editor.scn.ron"));
-    asset_registry.insert_asset(
-        PathBuf::from("embedded://scenes/editor.scn.ron"),
-        &PathBuf::from("scenes/editor.scn.ron"),
-        serialized_scene.bytes().collect::<Vec<_>>(),
-    );
-}
-
-fn cleanup_entities_on_enter(mut cmds: Commands, cleanup_q: Query<Entity, With<Character>>) {
+fn cleanup_entities_on_exit(mut cmds: Commands, cleanup_q: Query<Entity, With<EditorOnly>>) {
     for cleanup_entity in &cleanup_q {
         if let Some(found_entity) = cmds.get_entity(cleanup_entity) {
             found_entity.despawn_recursive();
@@ -817,6 +841,82 @@ fn update_editor_ui(
     }
 }
 
+fn save_scene(world: &mut World) {
+    let mut characters = world.query_filtered::<Entity, (With<Character>, With<Transform>)>();
+    let scene = DynamicSceneBuilder::from_world(world)
+        .deny_all_components()
+        .deny_all_resources()
+        .allow_resource::<TerrainWorldDefault>()
+        .allow_component::<Character>()
+        .allow_component::<EditorId>()
+        .allow_component::<Transform>()
+        .extract_entities(characters.iter(&world))
+        .extract_resources()
+        .build();
+    let type_registry = world.resource::<AppTypeRegistry>().clone();
+    let type_registry = type_registry.read();
+    let serialized_scene = scene.serialize(&type_registry).unwrap();
+    let file_path = world
+        .get_resource::<EditorOptions>()
+        .unwrap()
+        .file_path
+        .clone()
+        .unwrap();
+    #[cfg(not(target_arch = "wasm32"))]
+    IoTaskPool::get()
+        .spawn(async move {
+            // Write the scene RON data to file
+            File::create(file_path)
+                .and_then(|mut file| file.write(serialized_scene.as_bytes()))
+                .expect("Error while writing scene to file");
+        })
+        .detach();
+}
+
+fn change_state_to_editor(mut next_ingame_state: ResMut<NextState<InGameState>>) {
+    next_ingame_state.set(InGameState::InEditor);
+}
+
+fn store_scene(world: &mut World) {
+    let mut characters = world.query_filtered::<Entity, (With<Character>, With<Transform>)>();
+    let scene = DynamicSceneBuilder::from_world(world)
+        .deny_all_components()
+        .deny_all_resources()
+        .allow_resource::<TerrainWorldDefault>()
+        .allow_resource::<EditorStore>()
+        .allow_component::<Character>()
+        .allow_component::<EditorId>()
+        .allow_component::<Transform>()
+        .extract_entities(characters.iter(&world))
+        .extract_resources()
+        .build();
+    let mut dynamic_scenes = world.get_resource_mut::<Assets<DynamicScene>>().unwrap();
+    let handle = dynamic_scenes.add(scene);
+    let mut editor_options = world.get_resource_mut::<EditorOptions>().unwrap();
+    editor_options.scene = handle;
+}
+
+fn scene_from_file_into_memory(mut options: ResMut<EditorOptions>, asset_server: Res<AssetServer>) {
+    let path = options.file_path.clone().unwrap();
+    let scene_handle: Handle<DynamicScene> = asset_server.load(path.clone());
+    options.scene = scene_handle;
+}
+
+fn load_scene_from_memory(
+    mut options: ResMut<EditorOptions>,
+    mut scene_spawner: ResMut<SceneSpawner>,
+) {
+    let instance_id = scene_spawner.spawn_dynamic(options.scene.clone());
+    options.scene_instance_id = Some(instance_id);
+}
+
+fn update_nav_data(terrain_world: Res<TerrainWorldDefault>, mut navigation: ResMut<Navigation>) {
+    if terrain_world.is_changed() {
+        navigation.rebuild_from_terrain(&terrain_world);
+        // do something
+    }
+}
+
 pub struct EditorPlugin<S: States, L: States> {
     state: S,
     loading_state: L,
@@ -828,18 +928,36 @@ impl<S: States + FreelyMutableState, L: States + FreelyMutableState> Plugin for 
             LoadingStateConfig::new(self.loading_state.clone()).load_collection::<EditorAssets>(),
         )
         .register_type::<Transform>()
+        .register_type::<EditorId>()
+        .register_type::<EditorStore>()
         .init_resource::<EditorOptions>()
+        .init_resource::<EditorStore>()
+        .add_event::<EditorCommands>()
         .add_plugins(EguiPlugin)
         .add_systems(
-            OnEnter(self.state.clone()),
-            (cleanup_entities_on_enter, load_scene).chain(),
+            OnEnter(InGameState::Saving),
+            (save_scene, change_state_to_editor).chain(),
         )
-        .add_systems(OnEnter(InGameState::Saving), save_scene)
+        .add_systems(
+            OnEnter(InGameState::Loading),
+            (scene_from_file_into_memory, change_state_to_editor).chain(),
+        )
+        .add_systems(
+            OnEnter(self.state.clone()),
+            (
+                cleanup_entities_on_enter,
+                despawn_characters,
+                load_scene_from_memory,
+            )
+                .chain(),
+        )
         .add_systems(
             Update,
             (
                 update_editor_ui,
                 update_editor_menu,
+                update_nav_data,
+                update_handle_editor_actions,
                 update_terrain_tile_picking,
                 zoom_scale,
                 update_place_character,
@@ -851,8 +969,8 @@ impl<S: States + FreelyMutableState, L: States + FreelyMutableState> Plugin for 
         .add_systems(
             OnExit(self.state.clone()),
             (
-                store_scene,
                 cleanup_entities_on_exit,
+                store_scene,
                 on_exit_camera_full_window,
                 on_exit_make_tiles_white,
             )

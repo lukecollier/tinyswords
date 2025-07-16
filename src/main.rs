@@ -10,6 +10,7 @@ use tinyswords::diagnostics::DiagnosticsPlugin;
 use tinyswords::editor::EditorPlugin;
 use tinyswords::game::GamePlugin;
 use tinyswords::nav::NavPlugin;
+use tinyswords::ui::UiPlugin;
 use tinyswords::AppState;
 use tinyswords::{terrain::*, InGameState};
 
@@ -41,15 +42,13 @@ fn main() {
         LoadingState::new(AppState::AssetLoading).continue_to_state(AppState::InGame),
     )
     .add_plugins(EntropyPlugin::<WyRand>::default())
-    .add_plugins(tinyswords::ui::UiPlugin::run_on_state(
-        InGameState::InEditor,
-    ))
+    .add_plugins(UiPlugin::run_on_state(InGameState::InEditor))
     .add_plugins(EditorPlugin::run_on_state(
         InGameState::InEditor,
         AppState::AssetLoading,
     ))
     .add_plugins(GamePlugin::run_on_state(
-        AppState::InGame,
+        InGameState::Running,
         AppState::AssetLoading,
     ))
     .add_plugins(CharacterPlugin::run_on_state(

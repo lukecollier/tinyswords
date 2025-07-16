@@ -1,17 +1,52 @@
 use bevy::{math::I16Vec3, prelude::*};
 use petgraph::{algo::astar, prelude::*};
 
+use crate::{terrain::TerrainWorld, world::TILE_SIZE};
+
 const COARSE_RESOLUTION: i16 = 32_i16;
 
 #[derive(Resource, Default)]
 pub struct Navigation {
-    allowed: Vec<Rect>,
-    disallowed: Vec<Rect>,
-    // todo: Instead we update the nav graph with where has been allowed or disallowed
     nav_graph: UnGraph<I16Vec3, f32>,
 }
 
 impl Navigation {
+    pub fn rebuild_from_terrain<const N: usize>(&mut self, world: &TerrainWorld<N>) {
+        let mut nav_graph: UnGraph<I16Vec3, f32> = default();
+        for coord in world.non_water_coordinates() {
+            nav_graph.add_node(I16Vec3::new(
+                (coord.x + (TILE_SIZE / 2.)) as i16,
+                (coord.y + (TILE_SIZE / 2.)) as i16,
+                0,
+            ));
+        }
+        for start_index in nav_graph.node_indices() {
+            let start_node = nav_graph[start_index];
+            let x = start_node.x;
+            let y = start_node.y;
+            for index in nav_graph.node_indices() {
+                let node = nav_graph[index];
+                let ox = node.x;
+                let oy = node.y;
+                if x == ox && y == oy || nav_graph.contains_edge(start_index, index) {
+                    continue;
+                }
+                if (x - ox).abs() <= COARSE_RESOLUTION * 2
+                    && (y - oy).abs() <= COARSE_RESOLUTION * 2
+                {
+                    if x == ox || y == oy {
+                        nav_graph.add_edge(start_index, index, 1.);
+                        continue;
+                    }
+                    //navigation
+                    //    .nav_graph
+                    //    .add_edge(start_index, index, 1.41421356237);
+                }
+            }
+        }
+        self.nav_graph = nav_graph;
+    }
+
     pub fn is_walkable(&self, xy: Vec2) -> bool {
         self.nav_graph.node_indices().any(|node| {
             let point = self.nav_graph[node];
@@ -90,87 +125,9 @@ impl Navigation {
     }
 }
 
-#[derive(Component)]
-pub struct NavSquare {
-    pub size: Vec2,
-    pub walkable: bool,
-}
-
-#[derive(Bundle)]
-pub struct NavBundle {
-    transform: TransformBundle,
-    blocker: NavSquare,
-}
-
-impl NavBundle {
-    pub fn blocked(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self::from_xy(Vec2::new(x, y), Vec2::new(width, height), false)
-    }
-
-    pub fn allowed(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self::from_xy(Vec2::new(x, y), Vec2::new(width, height), true)
-    }
-    pub fn from_xy(xy: Vec2, size: Vec2, walkable: bool) -> Self {
-        Self {
-            transform: TransformBundle::from_transform(Transform::from_translation(xy.extend(0.0))),
-            blocker: NavSquare { size, walkable },
-        }
-    }
-}
-
 // todo: Cache the whole nav path in a resource
 // then have an update for when new blockers are added
 fn setup_nav(mut pathing: ResMut<Navigation>) {}
-
-// todo(improvement): Building the graph everytime is wasteful, also this method of NavSquares
-// doesn't seem useful. We could instead add the nodes at discrete points and then connect them
-fn update_nav_graph_changed(
-    mut navigation: ResMut<Navigation>,
-    changed_nav_q: Query<
-        (Ref<GlobalTransform>, Ref<NavSquare>),
-        (
-            Or<(Changed<NavSquare>, Changed<GlobalTransform>)>,
-            With<NavSquare>,
-        ),
-    >,
-) {
-    for (transform, nav_square) in &changed_nav_q {
-        let position = transform.translation().truncate();
-        let area = Rect::from_corners(position, position + nav_square.size);
-        if nav_square.walkable {
-            navigation.allowed.push(area);
-        } else {
-            navigation.disallowed.push(area);
-        }
-        if transform.is_changed() || nav_square.is_changed() {
-            let start_index = navigation
-                .nav_graph
-                .add_node(area.center().extend(0.0).as_i16vec3());
-            let start_node = navigation.nav_graph[start_index];
-            let x = start_node.x;
-            let y = start_node.y;
-            for index in navigation.nav_graph.node_indices() {
-                let node = navigation.nav_graph[index];
-                let ox = node.x;
-                let oy = node.y;
-                if x == ox && y == oy || navigation.nav_graph.contains_edge(start_index, index) {
-                    continue;
-                }
-                if (x - ox).abs() <= COARSE_RESOLUTION * 2
-                    && (y - oy).abs() <= COARSE_RESOLUTION * 2
-                {
-                    if x == ox || y == oy {
-                        navigation.nav_graph.add_edge(start_index, index, 1.);
-                        continue;
-                    }
-                    //navigation
-                    //    .nav_graph
-                    //    .add_edge(start_index, index, 1.41421356237);
-                }
-            }
-        }
-    }
-}
 
 pub fn update_nav(pos_q: Query<&GlobalTransform>) {}
 
@@ -189,10 +146,7 @@ impl<S: States> Plugin for NavPlugin<S> {
                 },
                 setup_nav,
             )
-            .add_systems(
-                Update,
-                (update_nav, update_nav_graph_changed).run_if(in_state(self.state.clone())),
-            );
+            .add_systems(Update, (update_nav).run_if(in_state(self.state.clone())));
     }
 }
 

@@ -28,6 +28,7 @@ pub enum InGameState {
     InEditor,
     Paused,
     Saving,
+    Loading,
 }
 
 #[cfg(debug_assertions)]

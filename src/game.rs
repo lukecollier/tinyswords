@@ -11,12 +11,16 @@ use crate::{
 #[derive(AssetCollection, Resource)]
 pub struct GameAssets {}
 
-pub struct GamePlugin<S: States> {
-    loading_state: S,
+pub struct GamePlugin<S: States, L: States> {
+    loading_state: L,
     state: S,
 }
 
-impl<S: States + bevy::state::state::FreelyMutableState> Plugin for GamePlugin<S> {
+impl<
+        S: States + bevy::state::state::FreelyMutableState,
+        L: States + bevy::state::state::FreelyMutableState,
+    > Plugin for GamePlugin<S, L>
+{
     fn build(&self, app: &mut App) {
         app.configure_loading_state(
             LoadingStateConfig::new(self.loading_state.clone()).load_collection::<GameAssets>(),
@@ -35,8 +39,8 @@ impl<S: States + bevy::state::state::FreelyMutableState> Plugin for GamePlugin<S
     }
 }
 
-impl<S: States> GamePlugin<S> {
-    pub fn run_on_state(state: S, loading_state: S) -> Self {
+impl<S: States, L: States> GamePlugin<S, L> {
+    pub fn run_on_state(state: S, loading_state: L) -> Self {
         Self {
             state,
             loading_state,

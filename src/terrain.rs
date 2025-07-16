@@ -6,7 +6,7 @@ use bevy::{
 };
 use bevy_asset_loader::prelude::*;
 
-pub const WORLD_SIZE: usize = 1024;
+pub const WORLD_SIZE: usize = 32;
 pub const TILE_SIZE_F32: f32 = 64.0;
 pub const TILE_EDGE_BUFFER: f32 = TILE_SIZE_F32;
 pub const TILE_SIZE_U32: u32 = 64;
@@ -70,6 +70,11 @@ pub type TerrainWorldDefault = TerrainWorld<WORLD_SIZE>;
 #[reflect(Resource)]
 pub struct TerrainWorld<const N: usize> {
     // can be improved by storing two tiles in every byte
+    // we should still use an array coz speed
+    // but we can experiment with vector and variable map sizes
+    // the idea would be that instead of the N const we store height and width here
+    // then the actual map data is always 1024x1024 but the height and width will decide if it can
+    // be seen or nah
     map: [[u8; N]; N],
 }
 
@@ -88,6 +93,34 @@ impl<const N: usize> TerrainWorld<N> {
         TerrainWorld {
             map: [[Self::WATER; N]; N],
         }
+    }
+
+    pub fn non_water_coordinates(&self) -> Vec<Vec2> {
+        let mut list = Vec::with_capacity(N * N);
+        for x in 0..self.map.len() {
+            for y in 0..self.map[x].len() {
+                if self.map[x][y] != Self::WATER {
+                    list.push(Vec2::new(
+                        x as f32 * TILE_SIZE_F32,
+                        y as f32 * TILE_SIZE_F32,
+                    ));
+                }
+            }
+        }
+        list
+    }
+
+    pub fn coordinates(&self) -> Vec<Vec2> {
+        let mut list = Vec::with_capacity(N * N);
+        for x in 0..self.map.len() {
+            for y in 0..self.map[x].len() {
+                list.push(Vec2::new(
+                    x as f32 * TILE_SIZE_F32,
+                    y as f32 * TILE_SIZE_F32,
+                ));
+            }
+        }
+        list
     }
 
     pub fn coords_to_world(&self, coords: &Vec2) -> Option<UVec2> {
@@ -120,6 +153,16 @@ impl<const N: usize> TerrainWorld<N> {
             return Err(());
         }
         self.map[x][y] = Self::GRASS;
+        Ok(())
+    }
+
+    pub(crate) fn set_to_water(&mut self, pos: &UVec2) -> Result<(), ()> {
+        let x = pos.x as usize;
+        let y = pos.y as usize;
+        if Self::outside_bounds(x, y) {
+            return Err(());
+        }
+        self.map[x][y] = Self::WATER;
         Ok(())
     }
 
@@ -214,7 +257,7 @@ impl<const N: usize> TerrainWorld<N> {
         bitmask
     }
 
-    fn get_tile_from(&self, pos: &UVec2) -> Option<TerrainTile> {
+    pub(crate) fn get_tile_from(&self, pos: &UVec2) -> Option<TerrainTile> {
         let (x, y) = (pos.x as usize, pos.y as usize);
         if (pos.x as usize) >= N || (pos.y as usize) >= N {
             return None;
@@ -226,7 +269,7 @@ impl<const N: usize> TerrainWorld<N> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum Terrain {
+pub(crate) enum Terrain {
     Sand,
     Grass,
     Water,
@@ -235,7 +278,7 @@ enum Terrain {
 #[derive(Component, Debug, PartialEq)]
 #[require(Transform)]
 pub(crate) struct TerrainTile {
-    terrain: Terrain,
+    pub(crate) terrain: Terrain,
     height: u8,
 }
 
