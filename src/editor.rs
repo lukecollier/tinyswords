@@ -37,7 +37,7 @@ pub struct EditorAssets {
     raider: Handle<Image>,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 enum BrushType {
     Terrain(Terrain),
     Character(Character),
@@ -118,6 +118,10 @@ impl EditorStore {
         self.last_editor_id += 1;
         EditorId(self.last_editor_id)
     }
+
+    fn clear_redo(&mut self) {
+        self.redo_log.clear();
+    }
 }
 
 #[derive(Component)]
@@ -135,13 +139,22 @@ struct CleanupCharacters;
 #[reflect(Component)]
 struct EditorId(usize);
 
-#[derive(Event, Reflect, Debug)]
-struct EditorCommands {
+#[derive(Event, Reflect, Debug, PartialEq, Clone)]
+struct EditorCommand {
     can_undo: bool,
     action: EditorActions,
 }
 
-impl EditorCommands {
+impl Default for EditorCommand {
+    fn default() -> Self {
+        EditorCommand {
+            can_undo: false,
+            action: EditorActions::Nothing,
+        }
+    }
+}
+
+impl EditorCommand {
     fn can_undo(action: EditorActions) -> Self {
         Self {
             can_undo: true,
@@ -160,12 +173,18 @@ impl EditorCommands {
 // as a hack we can push the opposite action to the undo history
 // so if we placed a character, undoing would delete the character
 // then we simply pop and send the event to our command
-#[derive(Event, Reflect, Debug)]
+#[derive(Event, Reflect, Debug, PartialEq, Clone)]
 enum EditorActions {
+    Nothing,
     CreateCharacter {
         translation: Vec3,
         character: Character,
         editor_id: Option<EditorId>,
+    },
+    MoveCharacter {
+        from: Vec3,
+        to: Vec3,
+        editor_id: EditorId,
     },
     // The character deleted
     DeleteCharacter(EditorId),
@@ -180,7 +199,8 @@ fn update_handle_selection(
     entity_q: Query<&EditorId>,
     button: Res<ButtonInput<KeyCode>>,
     options: Res<EditorOptions>,
-    mut ev_actions: EventWriter<EditorCommands>,
+    mut ev_actions: EventWriter<EditorCommand>,
+    mut store: ResMut<EditorStore>,
 ) {
     if button.just_pressed(KeyCode::Backspace) {
         for entity in &options.selected {
@@ -188,24 +208,30 @@ fn update_handle_selection(
                 warn!("attempted to find id for entity that did not exist");
                 return;
             };
-            ev_actions.write(EditorCommands::can_undo(EditorActions::DeleteCharacter(
-                *id,
-            )));
+            store.clear_redo();
+            ev_actions.write(EditorCommand::can_undo(EditorActions::DeleteCharacter(*id)));
         }
     }
 }
 
 fn update_handle_editor_actions(
     mut cmds: Commands,
-    mut ev_actions: EventReader<EditorCommands>,
+    mut ev_actions: EventReader<EditorCommand>,
     mut terrain: ResMut<TerrainWorldDefault>,
     mut store: ResMut<EditorStore>,
     editor_q: Query<(Entity, &EditorId)>,
-    character_q: Query<(&Transform, &Character)>,
+    mut character_q: Query<(&mut Transform, &Character)>,
     character_assets: Res<CharacterAssets>,
+    mut last_event: Local<EditorCommand>,
 ) {
     for ev in ev_actions.read() {
-        //dododo
+        // todo: Dirty hack since drag events fire multiple times
+        // need to raise an issue with bevy and a minimnal example
+        // see if it's just something in this project doing it!
+        if *last_event == *ev {
+            continue;
+        }
+        *last_event = ev.clone();
         match &ev.action {
             EditorActions::CreateCharacter {
                 translation: position,
@@ -235,10 +261,10 @@ fn update_handle_editor_actions(
                     .iter()
                     .find(|(_, q_id)| *q_id == id)
                     .expect("couldn't find editor entity :(");
-                cmds.entity(entity).despawn();
                 let (transform, character) = character_q
                     .get(entity)
                     .expect("couldn't find identity when adding to undo log {entity:?}");
+                cmds.entity(entity).despawn();
                 if ev.can_undo {
                     store.undo_log.push(EditorActions::CreateCharacter {
                         translation: transform.translation,
@@ -301,7 +327,34 @@ fn update_handle_editor_actions(
                     Terrain::Steps => todo!(),
                 }
             }
-            action => warn!("not yet implemented action used: {action:?}"),
+            EditorActions::MoveCharacter {
+                from,
+                to,
+                editor_id,
+            } => {
+                let (entity, _) = editor_q
+                    .iter()
+                    .find(|(_, q_id)| *q_id == editor_id)
+                    .expect("couldn't find editor entity :(");
+                let (mut transform, _) = character_q
+                    .get_mut(entity)
+                    .expect("couldn't find identity when adding to undo log {entity:?}");
+                transform.translation = to.clone();
+                if ev.can_undo {
+                    store.undo_log.push(EditorActions::MoveCharacter {
+                        from: *to,
+                        to: *from,
+                        editor_id: *editor_id,
+                    });
+                } else {
+                    store.redo_log.push(EditorActions::MoveCharacter {
+                        from: *to,
+                        to: *from,
+                        editor_id: *editor_id,
+                    });
+                }
+            }
+            EditorActions::Nothing => (),
         }
     }
 }
@@ -322,6 +375,60 @@ fn update_block_camera_move_egui(
     }
 }
 
+fn update_place_terrain(
+    window_q: Query<&Window>,
+    terrain_world: ResMut<TerrainWorldDefault>,
+    mut camera_q: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    options: ResMut<EditorOptions>,
+    mut store: ResMut<EditorStore>,
+    mut ev: EventWriter<EditorCommand>,
+) {
+    if !options.brush.is_terrain() || options.is_mouse_on_ui {
+        return;
+    }
+
+    let Ok(window) = window_q.single() else {
+        return;
+    };
+    for (camera, camera_transform) in camera_q.iter_mut() {
+        let Some(cursor_pos) = window.cursor_position() else {
+            return;
+        };
+
+        let Ok(world_cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else {
+            return;
+        };
+
+        if mouse_button.pressed(MouseButton::Left) {
+            let Some(terrain_pos) = terrain_world.coords_to_world(&world_cursor_pos) else {
+                return;
+            };
+            let Some(TerrainTile { terrain, .. }) = terrain_world.get_tile_from(&terrain_pos)
+            else {
+                return;
+            };
+            match &options.brush {
+                BrushType::Terrain(Terrain::Grass) if terrain != crate::terrain::Terrain::Grass => {
+                    store.clear_redo();
+                    ev.write(EditorCommand::can_undo(EditorActions::UpdateTerrain {
+                        position: terrain_pos,
+                        new_terrain_type: Terrain::Grass,
+                    }));
+                }
+                BrushType::Terrain(Terrain::Sand) if terrain != crate::terrain::Terrain::Sand => {
+                    store.clear_redo();
+                    ev.write(EditorCommand::can_undo(EditorActions::UpdateTerrain {
+                        position: terrain_pos,
+                        new_terrain_type: Terrain::Sand,
+                    }));
+                }
+                _ => (),
+            };
+        }
+    }
+}
+
 //todo: We should use events so we can log every change made in the editor and rollback (or even
 //more fun play a timelapse of the level being made!)
 fn update_place_character(
@@ -334,9 +441,10 @@ fn update_place_character(
     >,
     mouse_button: Res<ButtonInput<MouseButton>>,
     options: ResMut<EditorOptions>,
+    mut store: ResMut<EditorStore>,
     pathing: Res<Navigation>,
     character_assets: Res<CharacterAssets>,
-    mut ev: EventWriter<EditorCommands>,
+    mut ev: EventWriter<EditorCommand>,
 ) {
     if !options.brush.is_character() || options.is_mouse_on_ui {
         for (entity, _, _, _) in &character_shadow_q {
@@ -345,75 +453,73 @@ fn update_place_character(
         }
         return;
     }
-
-    if let Ok(window) = window_q.single() {
-        for (camera, camera_transform) in camera_q.iter_mut() {
-            if let Some(cursor_pos) = window.cursor_position() {
-                if let Some(logical_rect) = camera.logical_viewport_rect() {
-                    // note: Does not take into account that the viewport is offset by the navbar at
-                    // the top
-                    // so when we deal with the actual world we need to add the offset
-                    if !logical_rect.contains(cursor_pos) {
-                        for (entity, _, _, _) in &character_shadow_q {
-                            if let Ok(mut response) = cmds.get_entity(entity) {
-                                response.despawn();
-                            }
-                        }
-                        break;
-                    };
-                };
-                if let Ok(world_cursor_pos) =
-                    camera.viewport_to_world_2d(camera_transform, cursor_pos)
-                {
-                    match character_shadow_q.single_mut() {
-                        Ok((_, _, mut transform, mut sprite)) => {
-                            *transform = Transform::from_translation(
-                                (world_cursor_pos).extend(transform.translation.z),
-                            );
-                            if pathing.is_walkable(transform.translation.truncate()) {
-                                sprite.color = Color::linear_rgba(1., 1., 1., 0.5);
-                            } else {
-                                sprite.color = Color::linear_rgba(1., 0., 0., 0.5);
-                            }
-                        }
-                        Err(bevy::ecs::query::QuerySingleError::NoEntities(_)) => {
-                            match &options.brush {
-                                BrushType::Character(character) => {
-                                    let animated_sprite =
-                                        character.animated_sprite(&character_assets);
-                                    cmds.spawn((
-                                        Transform::from_translation(world_cursor_pos.extend(0.)),
-                                        character.clone(),
-                                        animated_sprite,
-                                        CharacterShadow,
-                                        EditorOnly,
-                                    ));
-                                }
-                                _ => panic!("todo: represent the brush types as a AST"),
-                            };
-                        }
-                        Err(bevy::ecs::query::QuerySingleError::MultipleEntities(_)) => {
-                            for (entity, _, _, _) in &character_shadow_q {
-                                if let Ok(mut response) = cmds.get_entity(entity) {
-                                    response.despawn();
-                                }
-                            }
-                        }
-                    };
-                    if mouse_button.just_pressed(MouseButton::Left) {
-                        for (_, template, transform, _) in &mut character_shadow_q {
-                            if pathing.is_walkable(transform.translation.truncate()) {
-                                let pos = (world_cursor_pos).extend(0.);
-                                ev.write(EditorCommands::can_undo(
-                                    EditorActions::CreateCharacter {
-                                        translation: pos,
-                                        character: template.clone(),
-                                        editor_id: None,
-                                    },
-                                ));
-                            }
-                        }
+    let Ok(window) = window_q.single() else {
+        return;
+    };
+    for (camera, camera_transform) in camera_q.iter_mut() {
+        let Some(cursor_pos) = window.cursor_position() else {
+            return;
+        };
+        let Some(logical_rect) = camera.logical_viewport_rect() else {
+            return;
+        };
+        // note: Does not take into account that the viewport is offset by the navbar at
+        // the top
+        // so when we deal with the actual world we need to add the offset
+        if !logical_rect.contains(cursor_pos) {
+            for (entity, _, _, _) in &character_shadow_q {
+                if let Ok(mut response) = cmds.get_entity(entity) {
+                    response.despawn();
+                }
+            }
+            break;
+        };
+        let Ok(world_cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else {
+            return;
+        };
+        match character_shadow_q.single_mut() {
+            Ok((_, _, mut transform, mut sprite)) => {
+                *transform =
+                    Transform::from_translation((world_cursor_pos).extend(transform.translation.z));
+                if pathing.is_walkable(transform.translation.truncate()) {
+                    sprite.color = Color::linear_rgba(1., 1., 1., 0.5);
+                } else {
+                    sprite.color = Color::linear_rgba(1., 0., 0., 0.5);
+                }
+            }
+            Err(bevy::ecs::query::QuerySingleError::NoEntities(_)) => {
+                match &options.brush {
+                    BrushType::Character(character) => {
+                        let animated_sprite = character.animated_sprite(&character_assets);
+                        cmds.spawn((
+                            Transform::from_translation(world_cursor_pos.extend(0.)),
+                            character.clone(),
+                            animated_sprite,
+                            CharacterShadow,
+                            EditorOnly,
+                        ));
                     }
+                    _ => panic!("todo: represent the brush types as a AST"),
+                };
+            }
+            Err(bevy::ecs::query::QuerySingleError::MultipleEntities(_)) => {
+                for (entity, _, _, _) in &character_shadow_q {
+                    if let Ok(mut response) = cmds.get_entity(entity) {
+                        response.despawn();
+                    }
+                }
+            }
+        };
+        if mouse_button.just_pressed(MouseButton::Left) {
+            for (_, template, transform, _) in &mut character_shadow_q {
+                if pathing.is_walkable(transform.translation.truncate()) {
+                    let pos = (world_cursor_pos).extend(0.);
+                    store.clear_redo();
+                    ev.write(EditorCommand::can_undo(EditorActions::CreateCharacter {
+                        translation: pos,
+                        character: template.clone(),
+                        editor_id: None,
+                    }));
                 }
             }
         }
@@ -459,16 +565,14 @@ fn update_editor_menu(
     mut contexts: EguiContexts,
     mut options: ResMut<EditorOptions>,
     mut store: ResMut<EditorStore>,
-    window_q: Query<&Window>,
-    mut camera_q: Query<&mut Camera, With<MainCamera>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut next_ingame_state: ResMut<NextState<InGameState>>,
-    mut ev: EventWriter<EditorCommands>,
+    mut ev: EventWriter<EditorCommand>,
     // fixes rfd forcing running on the main thread
     mut _windows: NonSend<WinitWindows>,
 ) {
     use egui::*;
-    let logical_height = TopBottomPanel::top("top_panel")
+    TopBottomPanel::top("top_panel")
         .show(contexts.ctx_mut().unwrap(), |ui| {
             menu::bar(ui, |ui| {
                 let mut layout_job = LayoutJob::default();
@@ -596,7 +700,7 @@ fn update_editor_menu(
                     ui.add_enabled(!store.undo_log.is_empty(), egui::Button::new(undo_layout));
                 if undo_enabled.clicked() || keyboard_input.just_pressed(KeyCode::KeyU) {
                     if let Some(undo_entry) = store.undo_log.pop() {
-                        ev.write(EditorCommands::cant_undo(undo_entry));
+                        ev.write(EditorCommand::cant_undo(undo_entry));
                     }
                 }
 
@@ -617,7 +721,7 @@ fn update_editor_menu(
                     ui.add_enabled(!store.redo_log.is_empty(), egui::Button::new(redo_layout));
                 if redo_enabled.clicked() || keyboard_input.just_pressed(KeyCode::KeyR) {
                     if let Some(entry) = store.redo_log.pop() {
-                        ev.write(EditorCommands::can_undo(entry));
+                        ev.write(EditorCommand::can_undo(entry));
                     }
                 }
 
@@ -718,43 +822,77 @@ fn on_click_select(click: Trigger<Pointer<Click>>, mut options: ResMut<EditorOpt
     options.selected.push(click.target);
 }
 
-fn on_drag_move(
-    drag: Trigger<Pointer<Drag>>,
-    mut transforms: Query<&mut Transform>,
+// fn on_drag_move(
+//     drag: Trigger<Pointer<Drag>>,
+//     mut transforms: Query<&mut Transform>,
+//     navigation: Res<Navigation>,
+//     q_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+// ) {
+//     let Ok((camera, camera_transform)) = q_camera.single() else {
+//         return;
+//     };
+
+//     if let Ok(mut transform) = transforms.get_mut(drag.target()) {
+//         if let Ok(world_position) =
+//             camera.viewport_to_world_2d(camera_transform, drag.pointer_location.position)
+//         {
+//             if navigation.is_walkable(world_position) {
+//                 transform.translation.x = world_position.x;
+//                 transform.translation.y = world_position.y;
+//             }
+//         }
+//     }
+// }
+
+// todo: Incredibly frustratingly this gets fired multiple times
+fn drag_move_character_end(
+    drag: Trigger<Pointer<DragEnd>>,
+    mut transforms: Query<(&mut Transform, &EditorId)>,
     navigation: Res<Navigation>,
     q_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    mut store: ResMut<EditorStore>,
+    mut ev_actions: EventWriter<EditorCommand>,
+    // todo: Report DragEnd sending multiple calls to bevy
+    mut last_event: Local<EditorCommand>,
 ) {
     let Ok((camera, camera_transform)) = q_camera.single() else {
         return;
     };
 
-    if let Ok(mut transform) = transforms.get_mut(drag.target()) {
-        if let Ok(world_position) =
-            camera.viewport_to_world_2d(camera_transform, drag.pointer_location.position)
-        {
-            if navigation.is_walkable(world_position) {
-                transform.translation.x = world_position.x;
-                transform.translation.y = world_position.y;
-            }
+    let Ok((start_transform, editor_id)) = transforms.get_mut(drag.target()) else {
+        return;
+    };
+    let Ok(world_position) =
+        camera.viewport_to_world_2d(camera_transform, drag.pointer_location.position)
+    else {
+        return;
+    };
+    if navigation.is_walkable(world_position) {
+        let command = EditorCommand::can_undo(EditorActions::MoveCharacter {
+            from: start_transform.translation,
+            to: world_position.extend(0.),
+            editor_id: *editor_id,
+        });
+        if *last_event != command {
+            *last_event = command.clone();
+            store.clear_redo();
+            ev_actions.write(command);
         }
     }
 }
 
-fn update_character_picking(mut cmds: Commands, character_q: Query<Entity, Added<Character>>) {
-    let mut drag_move = Observer::new(on_drag_move);
+fn update_character_picking(
+    mut cmds: Commands,
+    character_q: Query<Entity, (Added<Character>, Without<CharacterShadow>)>,
+) {
+    let mut drag_move = Observer::new(drag_move_character_end);
     let mut click_select = Observer::new(on_click_select);
-    let mut recolor_green = Observer::new(recolor_on::<Pointer<DragStart>>(GREEN.into()));
-    let mut recolor_white = Observer::new(recolor_on::<Pointer<DragEnd>>(Color::WHITE));
     for entity in &character_q {
         drag_move.watch_entity(entity);
         click_select.watch_entity(entity);
-        recolor_green.watch_entity(entity);
-        recolor_white.watch_entity(entity);
     }
     cmds.spawn((drag_move, EditorOnly));
     cmds.spawn((click_select, EditorOnly));
-    cmds.spawn((recolor_green, EditorOnly));
-    cmds.spawn((recolor_white, EditorOnly));
 }
 
 fn update_editor_ui(
@@ -1015,7 +1153,7 @@ impl<S: States + FreelyMutableState, L: States + FreelyMutableState> Plugin for 
         .register_type::<EditorStore>()
         .init_resource::<EditorOptions>()
         .init_resource::<EditorStore>()
-        .add_event::<EditorCommands>()
+        .add_event::<EditorCommand>()
         .add_systems(
             OnEnter(InGameState::Saving),
             (save_scene, change_state_to_editor).chain(),
@@ -1047,7 +1185,11 @@ impl<S: States + FreelyMutableState, L: States + FreelyMutableState> Plugin for 
         // Seems to be a problem
         .add_systems(
             Update,
-            (update_handle_editor_actions, update_place_character)
+            (
+                update_handle_editor_actions,
+                update_place_character,
+                update_place_terrain,
+            )
                 .run_if(resource_exists::<CharacterAssets>)
                 .run_if(in_state(self.state.clone())),
         )

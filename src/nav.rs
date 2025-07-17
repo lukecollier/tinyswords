@@ -11,6 +11,26 @@ pub struct Navigation {
 }
 
 impl Navigation {
+    // I think navigation can actually be done extremely quickly on the fly
+    // the alternative is to have nodes be marked as "occupied" when a unit is on or near them
+    // which could be a bit of a head ache
+    //
+    // one way would be to have the rough mesh that finds the path then along that path
+    // create another node graph with much finer resolution that gives a smoother looking
+    // navigation
+    //
+    // In this regard we keep things somewhat simple but allow for more minute navigation details
+    //
+    // For example each node could then have 32 nodes placed ontop of it which would be good enough
+    // :TM: for a smooth navigation experience. We can mark nodes that are coliding with entities
+    //
+    // this allows us to make informed choices, for example if we're attack moving then we need to
+    // search around the rough nodes and see if theres an enemy setting that as the target instead
+    //
+    // For the above to work we need to first implement attack and movement
+    // Walk could use the fine grained nav mesh
+    //
+    // 1. I need to know the "size" of my units
     pub fn rebuild_from_terrain<const N: usize>(&mut self, world: &TerrainWorld<N>) {
         let mut nav_graph: UnGraph<I16Vec3, f32> = default();
         for coord in world.non_water_coordinates() {

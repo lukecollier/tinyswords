@@ -1,0 +1,334 @@
+(
+  resources: {
+    "tinyswords::editor::EditorStore": (
+      last_editor_id: 0,
+      undo_log: [
+        UpdateTerrain(
+          position: (1, 0),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (0, 0),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (0, 1),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (0, 2),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (1, 2),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (2, 2),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (2, 1),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (1, 1),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (2, 0),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (3, 0),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (3, 1),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (3, 2),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (3, 3),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (4, 3),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (5, 3),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (6, 3),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (6, 4),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (8, 5),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (8, 6),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (9, 7),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (10, 8),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (10, 9),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (11, 9),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (12, 10),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (12, 9),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (12, 8),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (12, 7),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (11, 7),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (11, 6),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (12, 6),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (13, 7),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (13, 8),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (11, 8),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (10, 7),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (13, 9),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (13, 10),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (13, 11),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (13, 12),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (7, 10),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (6, 10),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (5, 10),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (4, 10),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (4, 9),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (5, 9),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (5, 8),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (6, 9),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (7, 9),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (6, 8),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (4, 8),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (5, 7),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (4, 7),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (4, 6),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (6, 7),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (7, 8),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (6, 16),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (6, 17),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (6, 18),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (6, 19),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (7, 19),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (8, 19),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (9, 19),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (8, 18),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (8, 17),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (7, 18),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (7, 17),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (7, 16),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (6, 15),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (7, 15),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (8, 16),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (9, 16),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (8, 15),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (7, 14),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (8, 14),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (9, 15),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (9, 14),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (9, 13),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (9, 17),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (9, 18),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (10, 18),
+          new_terrain_type: Water,
+        ),
+        UpdateTerrain(
+          position: (10, 17),
+          new_terrain_type: Water,
+        ),
+      ],
+      redo_log: [],
+    ),
+    "tinyswords::terrain::TerrainWorld<32>": (
+      map: ((16, 16, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (16, 16, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (16, 16, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 16, 0, 0, 16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 16, 0, 0, 0, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 16, 16, 0, 0, 16, 16, 16, 16, 0, 0, 0, 0, 32, 32, 32, 32, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 16, 16, 16, 0, 0, 0, 32, 32, 32, 32, 32, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 16, 16, 0, 0, 0, 0, 0, 0, 0, 32, 32, 32, 32, 32, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 32, 32, 32, 32, 32, 32, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 16, 16, 16, 0, 0, 0, 0, 0, 0, 0, 32, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 16, 16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)),
+    ),
+  },
+  entities: {},
+)
