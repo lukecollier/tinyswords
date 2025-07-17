@@ -39,11 +39,12 @@ impl<S: States> CameraPlugin<S> {
 
 fn setup_game_camera(mut cmds: Commands) {
     cmds.spawn((
-        Transform::from_translation(Vec3::new(
-            (WORLD_SIZE.x as f32 * TILE_SIZE) / 2.,
-            (WORLD_SIZE.y as f32 * TILE_SIZE) / 2.,
-            0.,
-        )),
+        // Transform::from_translation(Vec3::new(
+        //     (WORLD_SIZE.x as f32 * TILE_SIZE) / 2.,
+        //     (WORLD_SIZE.y as f32 * TILE_SIZE) / 2.,
+        //     0.,
+        // )),
+        SpritePickingCamera,
         Camera2d,
         Msaa::Off,
         MainCamera {
@@ -61,7 +62,10 @@ fn update_game_camera(
 ) {
     let (camera, camera_config) = camera_q.into_inner();
     // error if window does not exist
-    let window = window_q.single();
+
+    let Ok(window) = window_q.single() else {
+        return;
+    };
     // if the cursor is in the window we ready
     if let Some(cursor_pos) = window.cursor_position() {
         let camera_speed = 250.;

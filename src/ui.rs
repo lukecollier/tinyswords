@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::winit::cursor::{CursorIcon, CustomCursor};
+use bevy::winit::cursor::{CursorIcon, CustomCursor, CustomCursorImage};
 use bevy_asset_loader::prelude::*;
 
 use crate::AppState;
@@ -44,10 +44,11 @@ fn setup_cursor(
     assets: Res<UiAssets>,
     window_entity: Single<Entity, With<Window>>,
 ) {
-    let cursor_image: CursorIcon = CustomCursor::Image {
+    let custom_cursor_image = CustomCursorImage {
         handle: assets.cursor.clone(),
         hotspot: (0, 0),
-    }
-    .into();
+        ..default()
+    };
+    let cursor_image: CursorIcon = CustomCursor::Image(custom_cursor_image).into();
     cmds.entity(*window_entity).insert(cursor_image.clone());
 }

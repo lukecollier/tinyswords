@@ -354,75 +354,173 @@ impl TerrainView {
     }
 }
 
-// alternatively could communicate using events, the problem being we need to check every loaded
-// ecs component for changes against the tile_map.
 fn update_ecs_when_world_changes(
     mut commands: Commands,
     terrain: Res<TerrainWorldDefault>,
     assets: Res<TerrainAssets>,
-    mut tile_q: Query<(Entity, &mut TerrainTile, &Transform)>,
-    children_q: Query<&Children>,
-    mut sprite_q: Query<&mut Sprite>,
+    tile_q: Query<(Entity, &Transform), With<TerrainTile>>,
+    camera_q: Query<(&Camera, &GlobalTransform, &Projection)>,
 ) {
     if terrain.is_changed() {
-        // todo: Handle water as a special case, we don't store water in our ecs so we need to do
-        // something special
-        // todo: If our tile is currently a water tile we won't change it, we need to spawn a new
-        // tile :think:
-        for (entity, mut terrain_tile, transform) in tile_q.iter_mut() {
+        // despawn tiles that don't exist
+        // todo: Can probably be done more efficiently
+        for (entity, transform) in &tile_q {
             let Some(pos) = terrain.coords_to_world(&transform.translation.truncate()) else {
                 continue;
             };
-            let Ok(ref mut sprite) = sprite_q.get_mut(entity) else {
-                continue;
-            };
             if let Some(candidate_tile) = terrain.get_tile_from(&pos) {
-                if *terrain_tile != candidate_tile {
-                    terrain_tile.terrain = candidate_tile.terrain;
-                    terrain_tile.height = candidate_tile.height;
-                    let image = assets.tile_to_image(&terrain_tile);
-                    sprite.image = image;
+                if candidate_tile.terrain == Terrain::Water {
+                    commands.entity(entity).despawn();
+                    continue;
                 }
             }
-            if let Some(ref mut texture_atlas) = sprite.texture_atlas {
-                let bitmask = terrain.get_bitmask(&pos);
-                let index = TerrainAssets::index_from_bitmask(bitmask);
-                texture_atlas.index = index;
-            }
-            // this tells us if our tile has multiple layers.
-            if let Ok(children) = children_q.get(entity) {
-                let sand_bitmask = terrain.get_bitmask_sand(&pos);
-                if sand_bitmask == 0 {
-                    commands.entity(entity).remove_children(children);
-                } else {
-                    let index = TerrainAssets::index_from_bitmask(sand_bitmask);
-                    for child in children {
-                        let Ok(ref mut sprite) = sprite_q.get_mut(*child) else {
+        }
+
+        let Ok((camera, camera_transform, Projection::Orthographic(projection))) =
+            camera_q.single()
+        else {
+            return;
+        };
+        if let Some(rect) = camera.logical_viewport_rect() {
+            let rect = Rect::from_corners(rect.min * projection.scale, rect.max * projection.scale);
+            if rect.min.x >= 0. && rect.min.y >= 0. && rect.max.x >= 0. && rect.max.y >= 0. {
+                let urect = rect.as_urect();
+                let camera_viewport = urect.clone();
+                let camera_xy = camera_transform.translation().xy().clone();
+                let tiles: Vec<Vec2> = tile_q
+                    .iter()
+                    .map(|(_, transform)| transform.translation.xy())
+                    .collect();
+                let added = TerrainView::resolve_positions(camera_xy, rect, tiles);
+                for pos in &added {
+                    if let Some(tile) = terrain.get_tile_from(pos) {
+                        let tile_terrain = tile.terrain.clone();
+                        if tile_terrain == Terrain::Water {
                             continue;
+                        }
+                        let z = match tile_terrain {
+                            Terrain::Water => 0.,
+                            Terrain::Sand => -2.,
+                            Terrain::Grass => -1.,
                         };
-                        let Some(ref mut texture_atlas) = sprite.texture_atlas else {
-                            continue;
+
+                        let bitmask = terrain.get_bitmask(pos);
+                        let index = TerrainAssets::index_from_bitmask(bitmask);
+                        let texture_atlas = TextureAtlas {
+                            layout: assets.land_layout.clone(),
+                            index,
                         };
-                        texture_atlas.index = index;
+                        let mut sprite = Sprite::from_atlas_image(
+                            assets.tile_to_image(&tile).unwrap(),
+                            texture_atlas,
+                        );
+                        sprite.anchor = Anchor::BottomLeft;
+                        let pos_transform =
+                            Transform::from_translation((pos * TILE_SIZE_U32).as_vec2().extend(z));
+                        let mut spawned = commands.spawn((sprite, pos_transform, tile));
+                        if tile_terrain == Terrain::Grass && terrain.get_bitmask_sand(&pos) > 0 {
+                            let sand_bitmask = terrain.get_bitmask_sand(&pos);
+                            let index = TerrainAssets::index_from_bitmask(sand_bitmask);
+                            let texture_atlas = TextureAtlas {
+                                layout: assets.land_layout.clone(),
+                                index,
+                            };
+                            let mut sprite = Sprite::from_atlas_image(
+                                assets.sand_texture.clone(),
+                                texture_atlas,
+                            );
+                            sprite.anchor = Anchor::BottomLeft;
+                            spawned.with_children(|parent| {
+                                parent.spawn((sprite, Transform::from_xyz(0., 0., -1.)));
+                            });
+                        }
                     }
                 }
-            } else {
-                if terrain_tile.terrain == Terrain::Grass && terrain.get_bitmask_sand(&pos) > 0 {
-                    let sand_bitmask = terrain.get_bitmask_sand(&pos);
-                    let index = TerrainAssets::index_from_bitmask(sand_bitmask);
-                    let texture_atlas = TextureAtlas {
-                        layout: assets.land_layout.clone(),
-                        index,
-                    };
-                    let mut sprite =
-                        Sprite::from_atlas_image(assets.sand_texture.clone(), texture_atlas);
-                    sprite.anchor = Anchor::BottomLeft;
-                    commands.entity(entity).with_children(|parent| {
-                        parent.spawn((sprite, Transform::from_xyz(0., 0., -1.)));
-                    });
+                // if we added tiles we probably need to remove some tiles.
+                if !added.is_empty() {
+                    let tile_size = TILE_EDGE_BUFFER;
+                    let start_at =
+                        camera_xy - camera_viewport.half_size().as_vec2() - (tile_size / 2.);
+                    let current_view =
+                        Rect::from_corners(start_at, start_at + rect.size()).inflate(tile_size);
+                    for (entity, transform) in &tile_q {
+                        let tile_rect = Rect::from_corners(
+                            transform.translation.xy(),
+                            transform.translation.xy() + TILE_SIZE_F32,
+                        );
+                        if current_view.intersect(tile_rect).is_empty() {
+                            commands.entity(entity).despawn();
+                        }
+                    }
+                    // for now we only clean up old entities when added has changed
                 }
-            };
+                //todo: we shouldn't update our terrain view until we find deltas
+                // once we've calculated deltas etc etc, we replace our TerrainView so we can calculate our
+                // deltas (what need's spawning in /despawning)
+            }
         }
+
+        // for (entity, mut terrain_tile, transform) in tile_q.iter_mut() {
+        //     let Some(pos) = terrain.coords_to_world(&transform.translation.truncate()) else {
+        //         continue;
+        //     };
+        //     let Ok(ref mut sprite) = sprite_q.get_mut(entity) else {
+        //         continue;
+        //     };
+        //     if let Some(candidate_tile) = terrain.get_tile_from(&pos) {
+        //         if candidate_tile.terrain == Terrain::Water {
+        //             commands.entity(entity).despawn();
+        //             continue;
+        //         }
+        //         if *terrain_tile != candidate_tile {
+        //             terrain_tile.terrain = candidate_tile.terrain;
+        //             terrain_tile.height = candidate_tile.height;
+        //             // if we're on a water tile skip
+        //             let Some(image) = assets.tile_to_image(&terrain_tile) else {
+        //                 continue;
+        //             };
+        //             sprite.image = image;
+        //         }
+        //     }
+        //     if let Some(ref mut texture_atlas) = sprite.texture_atlas {
+        //         let bitmask = terrain.get_bitmask(&pos);
+        //         let index = TerrainAssets::index_from_bitmask(bitmask);
+        //         texture_atlas.index = index;
+        //     }
+        //     // this tells us if our tile has multiple layers.
+        //     if let Ok(children) = children_q.get(entity) {
+        //         let sand_bitmask = terrain.get_bitmask_sand(&pos);
+        //         if sand_bitmask == 0 {
+        //             commands.entity(entity).remove_children(children);
+        //         } else {
+        //             let index = TerrainAssets::index_from_bitmask(sand_bitmask);
+        //             for child in children {
+        //                 let Ok(ref mut sprite) = sprite_q.get_mut(*child) else {
+        //                     continue;
+        //                 };
+        //                 let Some(ref mut texture_atlas) = sprite.texture_atlas else {
+        //                     continue;
+        //                 };
+        //                 texture_atlas.index = index;
+        //             }
+        //         }
+        //     } else {
+        //         if terrain_tile.terrain == Terrain::Grass && terrain.get_bitmask_sand(&pos) > 0 {
+        //             let sand_bitmask = terrain.get_bitmask_sand(&pos);
+        //             let index = TerrainAssets::index_from_bitmask(sand_bitmask);
+        //             let texture_atlas = TextureAtlas {
+        //                 layout: assets.land_layout.clone(),
+        //                 index,
+        //             };
+        //             let mut sprite =
+        //                 Sprite::from_atlas_image(assets.sand_texture.clone(), texture_atlas);
+        //             sprite.anchor = Anchor::BottomLeft;
+        //             commands.entity(entity).with_children(|parent| {
+        //                 parent.spawn((sprite, Transform::from_xyz(0., 0., -1.)));
+        //             });
+        //         }
+        //     };
+        // }
     }
 }
 
@@ -434,10 +532,11 @@ fn update_load_world_to_ecs(
     mut commands: Commands,
     terrain: ResMut<TerrainWorldDefault>,
     assets: Res<TerrainAssets>,
-    camera_q: Query<(&Camera, &GlobalTransform, &OrthographicProjection), Changed<Transform>>,
+    camera_q: Query<(&Camera, &GlobalTransform, &Projection), Changed<Transform>>,
     tile_q: Query<(Entity, &Transform), With<TerrainTile>>,
 ) {
-    let Ok((camera, camera_transform, projection)) = camera_q.get_single() else {
+    let Ok((camera, camera_transform, Projection::Orthographic(projection))) = camera_q.single()
+    else {
         return;
     };
     if let Some(rect) = camera.logical_viewport_rect() {
@@ -454,10 +553,13 @@ fn update_load_world_to_ecs(
             for pos in &added {
                 if let Some(tile) = terrain.get_tile_from(pos) {
                     let tile_terrain = tile.terrain.clone();
+                    if tile_terrain == Terrain::Water {
+                        continue;
+                    }
                     let z = match tile_terrain {
                         Terrain::Water => 0.,
-                        Terrain::Sand => 1.,
-                        Terrain::Grass => 2.,
+                        Terrain::Sand => -2.,
+                        Terrain::Grass => -1.,
                     };
 
                     let bitmask = terrain.get_bitmask(pos);
@@ -466,8 +568,10 @@ fn update_load_world_to_ecs(
                         layout: assets.land_layout.clone(),
                         index,
                     };
-                    let mut sprite =
-                        Sprite::from_atlas_image(assets.tile_to_image(&tile), texture_atlas);
+                    let mut sprite = Sprite::from_atlas_image(
+                        assets.tile_to_image(&tile).unwrap(),
+                        texture_atlas,
+                    );
                     sprite.anchor = Anchor::BottomLeft;
                     let pos_transform =
                         Transform::from_translation((pos * TILE_SIZE_U32).as_vec2().extend(z));
@@ -500,7 +604,7 @@ fn update_load_world_to_ecs(
                         transform.translation.xy() + TILE_SIZE_F32,
                     );
                     if current_view.intersect(tile_rect).is_empty() {
-                        commands.entity(entity).despawn_recursive();
+                        commands.entity(entity).despawn();
                     }
                 }
                 // for now we only clean up old entities when added has changed
@@ -536,9 +640,6 @@ fn on_exit_water(mut commands: Commands, water_q: Single<Entity, With<Water>>) {
 
 #[derive(AssetCollection, Resource)]
 pub struct TerrainAssets {
-    #[asset(path = "terrain/water/water.png")]
-    pub water_texture: Handle<Image>,
-
     #[asset(path = "terrain/water/foam/foam.png")]
     pub coast_texture: Handle<Image>,
 
@@ -605,11 +706,11 @@ impl TerrainAssets {
         }
     }
 
-    fn tile_to_image(&self, tile: &TerrainTile) -> Handle<Image> {
+    fn tile_to_image(&self, tile: &TerrainTile) -> Option<Handle<Image>> {
         match tile.terrain {
-            Terrain::Sand => self.sand_texture.clone(),
-            Terrain::Grass => self.grass_texture.clone(),
-            Terrain::Water => self.water_texture.clone(),
+            Terrain::Sand => self.sand_texture.clone().into(),
+            Terrain::Grass => self.grass_texture.clone().into(),
+            Terrain::Water => None,
         }
     }
 }

@@ -75,10 +75,10 @@ fn update_selection(
     keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
     if mouse_button.just_pressed(MouseButton::Left) {
-        let Ok(window) = window_q.get_single() else {
+        let Ok(window) = window_q.single() else {
             return;
         };
-        let Ok((camera, camera_transform)) = camera_q.get_single() else {
+        let Ok((camera, camera_transform)) = camera_q.single() else {
             return;
         };
         let Some(cursor_pos) = window.cursor_position() else {
@@ -89,7 +89,7 @@ fn update_selection(
             let mut closest_distance = f32::MAX;
             if !keyboard_input.pressed(KeyCode::ShiftLeft) {
                 for (entity, _) in &characters_q {
-                    if let Some(mut deselect) = cmds.get_entity(entity) {
+                    if let Ok(mut deselect) = cmds.get_entity(entity) {
                         deselect.remove::<CharacterSelected>();
                     }
                 }
@@ -112,7 +112,7 @@ fn update_selection(
                 }
             }
             if let Some(closest) = closest {
-                if let Some(mut selected) = cmds.get_entity(closest) {
+                if let Ok(mut selected) = cmds.get_entity(closest) {
                     selected.insert(CharacterSelected);
                 }
             }
@@ -142,7 +142,7 @@ fn update_character_orders(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut gizmos: Gizmos,
 ) {
-    let Ok(window) = window_q.get_single() else {
+    let Ok(window) = window_q.single() else {
         return;
     };
     for (camera, camera_transform) in camera_q.iter() {

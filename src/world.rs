@@ -1,9 +1,9 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use bevy::sprite::{Material2d, Material2dPlugin};
-use bevy::utils::hashbrown::HashMap;
 /**
  * This is the plugin for the world, it's animations, and creating blocking
  */
@@ -98,9 +98,6 @@ impl Default for GlobalAnimation {
 
 #[derive(AssetCollection, Resource)]
 pub struct WorldAssets {
-    #[asset(path = "terrain/water/water.png")]
-    pub water_texture: Handle<Image>,
-
     #[asset(path = "terrain/water/foam/foam.png")]
     pub coast_texture: Handle<Image>,
 
@@ -487,7 +484,7 @@ fn update_meets_grass(
                     land_map.get(tile_pos.x, tile_pos.y - 1, *elevation, Land::Grass)
                 {
                     // remove all children (the sand)
-                    cmds.entity(*bot_entity).despawn_descendants();
+                    cmds.entity(*bot_entity).despawn_related::<Children>();
                 }
             }
             let top_sand =
@@ -497,7 +494,7 @@ fn update_meets_grass(
                     land_map.get(tile_pos.x, tile_pos.y + 1, *elevation, Land::Grass)
                 {
                     // remove all children (the sand)
-                    cmds.entity(*bot_entity).despawn_descendants();
+                    cmds.entity(*bot_entity).despawn_related::<Children>();
                 }
             }
             let left_sand =
@@ -507,7 +504,7 @@ fn update_meets_grass(
                     land_map.get(tile_pos.x - 1, tile_pos.y, *elevation, Land::Grass)
                 {
                     // remove all children (the sand)
-                    cmds.entity(*bot_entity).despawn_descendants();
+                    cmds.entity(*bot_entity).despawn_related::<Children>();
                 }
             }
             let right_sand =
@@ -517,7 +514,7 @@ fn update_meets_grass(
                     land_map.get(tile_pos.x + 1, tile_pos.y, *elevation, Land::Grass)
                 {
                     // remove all children (the sand)
-                    cmds.entity(*bot_entity).despawn_descendants();
+                    cmds.entity(*bot_entity).despawn_related::<Children>();
                 }
             }
         }
@@ -638,7 +635,7 @@ fn update_coastline(
                 if let Ok(children) = children_q.get(*entity) {
                     for child in children {
                         coast_q.get(*child).ok().map(|entity| {
-                            cmds.entity(entity).despawn_recursive();
+                            cmds.entity(entity).despawn();
                         });
                     }
                 }
@@ -649,7 +646,7 @@ fn update_coastline(
                 if let Ok(children) = children_q.get(*entity) {
                     for child in children {
                         coast_q.get(*child).ok().map(|entity| {
-                            cmds.entity(entity).despawn_recursive();
+                            cmds.entity(entity).despawn();
                         });
                     }
                 }
@@ -660,7 +657,7 @@ fn update_coastline(
                 if let Ok(children) = children_q.get(*entity) {
                     for child in children {
                         coast_q.get(*child).ok().map(|entity| {
-                            cmds.entity(entity).despawn_recursive();
+                            cmds.entity(entity).despawn();
                         });
                     }
                 }
@@ -671,7 +668,7 @@ fn update_coastline(
                 if let Ok(children) = children_q.get(*entity) {
                     for child in children {
                         coast_q.get(*child).ok().map(|entity| {
-                            cmds.entity(entity).despawn_recursive();
+                            cmds.entity(entity).despawn();
                         });
                     }
                 }
@@ -978,8 +975,8 @@ fn update_tile_elevation(
             if elevation.0 > 0 {
                 if let Ok(children) = children_q.get(entity) {
                     children.iter().for_each(|child| {
-                        if let Some(entity) = despawn_q.get(*child).ok() {
-                            cmds.entity(entity).despawn_recursive();
+                        if let Some(entity) = despawn_q.get(child).ok() {
+                            cmds.entity(entity).despawn();
                         }
                     });
                 }
@@ -1021,7 +1018,7 @@ fn update_crumbs_placed_cliff(
                 land = None;
             }
             if let Some(Land::Grass) = land {
-                cmds.entity(entity).despawn_descendants();
+                cmds.entity(entity).despawn_related::<Children>();
                 let crumbs = cmds
                     .spawn((
                         assets.grass_crumbs(),
@@ -1043,7 +1040,7 @@ fn update_crumbs_placed_cliff(
                 cmds.entity(entity).add_children(&[grass, crumbs]);
             }
             if let Some(Land::Sand) = land {
-                cmds.entity(entity).despawn_descendants();
+                cmds.entity(entity).despawn_related::<Children>();
                 let crumbs = cmds
                     .spawn((
                         assets.sand_crumbs(),

@@ -14,7 +14,7 @@ use bevy::{
 use bevy_asset_loader::prelude::*;
 use bevy_egui::{
     egui::{self, text::LayoutJob},
-    EguiContexts, EguiPlugin,
+    EguiContexts, EguiPlugin, EguiPrimaryContextPass,
 };
 use std::io::Write;
 
@@ -77,6 +77,10 @@ struct EditorOptions {
     is_mouse_on_ui: bool,
     scene: Handle<DynamicScene>,
     scene_instance_id: Option<InstanceId>,
+    // todso: These can use _is_mouse_on_ui_
+    terrain_window_rect: egui::Rect,
+    character_window_rect: egui::Rect,
+    selected: Vec<Entity>,
 }
 
 impl Default for EditorOptions {
@@ -92,6 +96,9 @@ impl Default for EditorOptions {
             is_mouse_on_ui: false,
             scene: Handle::default(),
             scene_instance_id: None,
+            terrain_window_rect: egui::Rect::NOTHING,
+            character_window_rect: egui::Rect::NOTHING,
+            selected: vec![],
         }
     }
 }
@@ -102,6 +109,7 @@ impl Default for EditorOptions {
 struct EditorStore {
     last_editor_id: usize,
     undo_log: Vec<EditorActions>,
+    redo_log: Vec<EditorActions>,
 }
 
 impl EditorStore {
@@ -129,18 +137,21 @@ struct EditorId(usize);
 
 #[derive(Event, Reflect, Debug)]
 struct EditorCommands {
-    undo: bool,
+    can_undo: bool,
     action: EditorActions,
 }
 
 impl EditorCommands {
     fn can_undo(action: EditorActions) -> Self {
-        Self { undo: true, action }
+        Self {
+            can_undo: true,
+            action,
+        }
     }
 
     fn cant_undo(action: EditorActions) -> Self {
         Self {
-            undo: false,
+            can_undo: false,
             action,
         }
     }
@@ -152,8 +163,9 @@ impl EditorCommands {
 #[derive(Event, Reflect, Debug)]
 enum EditorActions {
     CreateCharacter {
-        position: Vec3,
+        translation: Vec3,
         character: Character,
+        editor_id: Option<EditorId>,
     },
     // The character deleted
     DeleteCharacter(EditorId),
@@ -164,21 +176,43 @@ enum EditorActions {
     },
 }
 
+fn update_handle_selection(
+    entity_q: Query<&EditorId>,
+    button: Res<ButtonInput<KeyCode>>,
+    options: Res<EditorOptions>,
+    mut ev_actions: EventWriter<EditorCommands>,
+) {
+    if button.just_pressed(KeyCode::Backspace) {
+        for entity in &options.selected {
+            let Ok(id) = entity_q.get(*entity) else {
+                warn!("attempted to find id for entity that did not exist");
+                return;
+            };
+            ev_actions.write(EditorCommands::can_undo(EditorActions::DeleteCharacter(
+                *id,
+            )));
+        }
+    }
+}
+
 fn update_handle_editor_actions(
     mut cmds: Commands,
     mut ev_actions: EventReader<EditorCommands>,
     mut terrain: ResMut<TerrainWorldDefault>,
     mut store: ResMut<EditorStore>,
     editor_q: Query<(Entity, &EditorId)>,
+    character_q: Query<(&Transform, &Character)>,
     character_assets: Res<CharacterAssets>,
 ) {
     for ev in ev_actions.read() {
+        //dododo
         match &ev.action {
             EditorActions::CreateCharacter {
-                position,
+                translation: position,
                 character,
+                editor_id,
             } => {
-                let id = store.next_id();
+                let id = editor_id.unwrap_or(store.next_id());
                 cmds.spawn((
                     *character,
                     character.animated_sprite(&character_assets),
@@ -186,9 +220,13 @@ fn update_handle_editor_actions(
                     id,
                     Transform::from_translation(*position),
                 ));
-                if ev.undo {
+                if ev.can_undo {
                     store
                         .undo_log
+                        .push(EditorActions::DeleteCharacter(id.clone()));
+                } else {
+                    store
+                        .redo_log
                         .push(EditorActions::DeleteCharacter(id.clone()));
                 }
             }
@@ -197,7 +235,23 @@ fn update_handle_editor_actions(
                     .iter()
                     .find(|(_, q_id)| *q_id == id)
                     .expect("couldn't find editor entity :(");
-                cmds.entity(entity).despawn_recursive();
+                cmds.entity(entity).despawn();
+                let (transform, character) = character_q
+                    .get(entity)
+                    .expect("couldn't find identity when adding to undo log {entity:?}");
+                if ev.can_undo {
+                    store.undo_log.push(EditorActions::CreateCharacter {
+                        translation: transform.translation,
+                        character: *character,
+                        editor_id: Some(*id),
+                    });
+                } else {
+                    store.redo_log.push(EditorActions::CreateCharacter {
+                        translation: transform.translation,
+                        character: *character,
+                        editor_id: Some(*id),
+                    });
+                }
             }
             EditorActions::UpdateTerrain {
                 position,
@@ -209,8 +263,13 @@ fn update_handle_editor_actions(
                         crate::terrain::Terrain::Grass => Terrain::Grass,
                         crate::terrain::Terrain::Water => Terrain::Water,
                     };
-                    if ev.undo {
+                    if ev.can_undo {
                         store.undo_log.push(EditorActions::UpdateTerrain {
+                            position: *position,
+                            new_terrain_type: prev_terrain,
+                        });
+                    } else {
+                        store.redo_log.push(EditorActions::UpdateTerrain {
                             position: *position,
                             new_terrain_type: prev_terrain,
                         });
@@ -253,7 +312,7 @@ fn update_block_camera_move_egui(
     mut options: ResMut<EditorOptions>,
 ) {
     for mut camera_config in camera_q.iter_mut() {
-        if !contexts.ctx_mut().is_pointer_over_area() {
+        if !contexts.ctx_mut().unwrap().is_pointer_over_area() {
             camera_config.move_by_viewport_borders = true;
             options.is_mouse_on_ui = false;
         } else {
@@ -281,26 +340,23 @@ fn update_place_character(
 ) {
     if !options.brush.is_character() || options.is_mouse_on_ui {
         for (entity, _, _, _) in &character_shadow_q {
-            if let Some(response) = cmds.get_entity(entity) {
-                response.despawn_recursive();
-            }
+            let mut response = cmds.entity(entity);
+            response.despawn();
         }
         return;
     }
 
-    if let Ok(window) = window_q.get_single() {
+    if let Ok(window) = window_q.single() {
         for (camera, camera_transform) in camera_q.iter_mut() {
             if let Some(cursor_pos) = window.cursor_position() {
-                let mut top_offset_logical_pixels = 0.;
                 if let Some(logical_rect) = camera.logical_viewport_rect() {
                     // note: Does not take into account that the viewport is offset by the navbar at
                     // the top
                     // so when we deal with the actual world we need to add the offset
-                    top_offset_logical_pixels = window.height() - logical_rect.height();
                     if !logical_rect.contains(cursor_pos) {
                         for (entity, _, _, _) in &character_shadow_q {
-                            if let Some(response) = cmds.get_entity(entity) {
-                                response.despawn_recursive();
+                            if let Ok(mut response) = cmds.get_entity(entity) {
+                                response.despawn();
                             }
                         }
                         break;
@@ -309,11 +365,10 @@ fn update_place_character(
                 if let Ok(world_cursor_pos) =
                     camera.viewport_to_world_2d(camera_transform, cursor_pos)
                 {
-                    match character_shadow_q.get_single_mut() {
+                    match character_shadow_q.single_mut() {
                         Ok((_, _, mut transform, mut sprite)) => {
                             *transform = Transform::from_translation(
-                                (world_cursor_pos + Vec2::Y * top_offset_logical_pixels)
-                                    .extend(transform.translation.z),
+                                (world_cursor_pos).extend(transform.translation.z),
                             );
                             if pathing.is_walkable(transform.translation.truncate()) {
                                 sprite.color = Color::linear_rgba(1., 1., 1., 0.5);
@@ -327,7 +382,7 @@ fn update_place_character(
                                     let animated_sprite =
                                         character.animated_sprite(&character_assets);
                                     cmds.spawn((
-                                        Transform::from_translation(world_cursor_pos.extend(100.)),
+                                        Transform::from_translation(world_cursor_pos.extend(0.)),
                                         character.clone(),
                                         animated_sprite,
                                         CharacterShadow,
@@ -339,24 +394,23 @@ fn update_place_character(
                         }
                         Err(bevy::ecs::query::QuerySingleError::MultipleEntities(_)) => {
                             for (entity, _, _, _) in &character_shadow_q {
-                                if let Some(response) = cmds.get_entity(entity) {
-                                    response.despawn_recursive();
+                                if let Ok(mut response) = cmds.get_entity(entity) {
+                                    response.despawn();
                                 }
                             }
                         }
                     };
                     if mouse_button.just_pressed(MouseButton::Left) {
                         for (_, template, transform, _) in &mut character_shadow_q {
-                            if pathing.is_walkable(
-                                transform.translation.truncate()
-                                    + Vec2::Y * top_offset_logical_pixels,
-                            ) {
-                                let pos = (world_cursor_pos + Vec2::Y * top_offset_logical_pixels)
-                                    .extend(100.);
-                                ev.send(EditorCommands::can_undo(EditorActions::CreateCharacter {
-                                    position: pos,
-                                    character: template.clone(),
-                                }));
+                            if pathing.is_walkable(transform.translation.truncate()) {
+                                let pos = (world_cursor_pos).extend(0.);
+                                ev.write(EditorCommands::can_undo(
+                                    EditorActions::CreateCharacter {
+                                        translation: pos,
+                                        character: template.clone(),
+                                        editor_id: None,
+                                    },
+                                ));
                             }
                         }
                     }
@@ -367,10 +421,15 @@ fn update_place_character(
 }
 
 fn zoom_scale(
-    mut query_camera: Query<&mut OrthographicProjection, With<MainCamera>>,
+    mut query_camera: Query<&mut Projection, With<MainCamera>>,
     button: Res<ButtonInput<KeyCode>>,
 ) {
-    let mut projection = query_camera.single_mut();
+    let Ok(mut projection) = query_camera.single_mut() else {
+        return;
+    };
+    let Projection::Orthographic(ref mut projection) = *projection else {
+        return;
+    };
     // zoom in
     if button.just_pressed(KeyCode::Minus) {
         projection.scale /= 1.25;
@@ -387,104 +446,6 @@ fn on_exit_make_tiles_white(mut tiles_q: Query<&mut Sprite, With<TerrainTile>>) 
             sprite.color = Color::WHITE;
         }
     }
-}
-
-fn update_terrain_tile_picking(mut cmds: Commands, tiles_q: Query<Entity, Added<TerrainTile>>) {
-    fn recolor_on<E>(
-        color: Color,
-    ) -> impl Fn(Trigger<E>, Query<&mut Sprite>, Res<State<InGameState>>)
-    where
-        E: Clone + Reflect,
-    {
-        move |ev, mut sprites, state| {
-            let state = state.get();
-            if *state != InGameState::InEditor {
-                return;
-            }
-            let Ok(mut sprite) = sprites.get_mut(ev.entity()) else {
-                return;
-            };
-            sprite.color = color;
-        }
-    }
-
-    fn on_click() -> impl Fn(
-        Trigger<Pointer<Down>>,
-        Res<TerrainWorldDefault>,
-        EventWriter<EditorCommands>,
-        Query<&GlobalTransform>,
-        Res<EditorOptions>,
-        Res<State<InGameState>>,
-    ) {
-        move |ev, terrain, mut actions, global_transform_q, options, state| {
-            let state = state.get();
-            if *state != InGameState::InEditor || !options.brush.is_terrain() {
-                return;
-            }
-            let Ok(tile_transform) = global_transform_q.get(ev.entity()) else {
-                return;
-            };
-            let Some(terrain_pos) = terrain.coords_to_world(&tile_transform.translation().xy())
-            else {
-                return;
-            };
-            match options.brush {
-                BrushType::Terrain(terrain_type) => {
-                    actions.send(EditorCommands::can_undo(EditorActions::UpdateTerrain {
-                        position: terrain_pos,
-                        new_terrain_type: terrain_type,
-                    }));
-                }
-                _ => (),
-            }
-        }
-    }
-
-    fn on_move() -> impl Fn(
-        Trigger<Pointer<Over>>,
-        Res<TerrainWorldDefault>,
-        EventWriter<EditorCommands>,
-        Query<&GlobalTransform>,
-        Res<ButtonInput<MouseButton>>,
-        Res<EditorOptions>,
-        Res<State<InGameState>>,
-    ) {
-        move |ev, terrain, mut actions, global_transform_q, button, options, state| {
-            let state = state.get();
-            if *state != InGameState::InEditor
-                || !button.pressed(MouseButton::Left)
-                || !options.brush.is_terrain()
-            {
-                return;
-            }
-            let Ok(tile_transform) = global_transform_q.get(ev.entity()) else {
-                return;
-            };
-            let Some(terrain_pos) = terrain.coords_to_world(&tile_transform.translation().xy())
-            else {
-                return;
-            };
-            match options.brush {
-                BrushType::Terrain(terrain_type) => {
-                    actions.send(EditorCommands::can_undo(EditorActions::UpdateTerrain {
-                        position: terrain_pos,
-                        new_terrain_type: terrain_type,
-                    }));
-                }
-                _ => (),
-            }
-            // sprite.color = color;
-        }
-    }
-    for entity in &tiles_q {
-        cmds.entity(entity)
-            .observe(recolor_on::<Pointer<Over>>(GREEN.into()))
-            .observe(recolor_on::<Pointer<Out>>(Color::WHITE))
-            .observe(on_click())
-            .observe(on_move());
-    }
-    // we can use this entity for visual elements before writing any changes back to our terrain
-    // world
 }
 
 fn debug_nav_pathing(gizmos: Gizmos, navigation: Res<Navigation>) {
@@ -508,7 +469,7 @@ fn update_editor_menu(
 ) {
     use egui::*;
     let logical_height = TopBottomPanel::top("top_panel")
-        .show(contexts.ctx_mut(), |ui| {
+        .show(contexts.ctx_mut().unwrap(), |ui| {
             menu::bar(ui, |ui| {
                 let mut layout_job = LayoutJob::default();
                 RichText::new("O").color(Color32::YELLOW).append_to(
@@ -528,9 +489,38 @@ fn update_editor_menu(
                         && keyboard_input.pressed(KeyCode::ControlLeft))
                 {
                     if let Some(path) = rfd::FileDialog::new().pick_file() {
-                        // todo: this should be done via the loading state
                         options.file_path = Some(path.clone());
                         next_ingame_state.set(InGameState::Loading);
+                    }
+                }
+                let mut save_as_job = LayoutJob::default();
+                RichText::new("S").color(Color32::LIGHT_GRAY).append_to(
+                    &mut save_as_job,
+                    &ui.style(),
+                    FontSelection::Default,
+                    Align::Center,
+                );
+                RichText::new("a").color(Color32::YELLOW).append_to(
+                    &mut save_as_job,
+                    &ui.style(),
+                    FontSelection::Default,
+                    Align::Center,
+                );
+                RichText::new("ve As").color(Color32::LIGHT_GRAY).append_to(
+                    &mut save_as_job,
+                    &ui.style(),
+                    FontSelection::Default,
+                    Align::Center,
+                );
+                if ui.button(save_as_job).clicked() {
+                    if let Some(path) = rfd::FileDialog::new().save_file() {
+                        let path = if path.ends_with(".scn.ron") {
+                            path.clone()
+                        } else {
+                            path.clone().with_extension(".scn.ron")
+                        };
+                        options.file_path = Some(path);
+                        next_ingame_state.set(InGameState::Saving);
                     }
                 }
                 let mut layout_job = LayoutJob::default();
@@ -596,15 +586,38 @@ fn update_editor_menu(
                     FontSelection::Default,
                     Align::Center,
                 );
-                RichText::new("undo").color(Color32::LIGHT_GRAY).append_to(
+                RichText::new("ndo").color(Color32::LIGHT_GRAY).append_to(
                     &mut undo_layout,
                     &ui.style(),
                     FontSelection::Default,
                     Align::Center,
                 );
-                if ui.button(undo_layout).clicked() || keyboard_input.just_pressed(KeyCode::KeyU) {
+                let undo_enabled =
+                    ui.add_enabled(!store.undo_log.is_empty(), egui::Button::new(undo_layout));
+                if undo_enabled.clicked() || keyboard_input.just_pressed(KeyCode::KeyU) {
                     if let Some(undo_entry) = store.undo_log.pop() {
-                        ev.send(EditorCommands::cant_undo(undo_entry));
+                        ev.write(EditorCommands::cant_undo(undo_entry));
+                    }
+                }
+
+                let mut redo_layout = LayoutJob::default();
+                RichText::new("R").color(Color32::YELLOW).append_to(
+                    &mut redo_layout,
+                    &ui.style(),
+                    FontSelection::Default,
+                    Align::Center,
+                );
+                RichText::new("edo").color(Color32::LIGHT_GRAY).append_to(
+                    &mut redo_layout,
+                    &ui.style(),
+                    FontSelection::Default,
+                    Align::Center,
+                );
+                let redo_enabled =
+                    ui.add_enabled(!store.redo_log.is_empty(), egui::Button::new(redo_layout));
+                if redo_enabled.clicked() || keyboard_input.just_pressed(KeyCode::KeyR) {
+                    if let Some(entry) = store.redo_log.pop() {
+                        ev.write(EditorCommands::can_undo(entry));
                     }
                 }
 
@@ -634,21 +647,6 @@ fn update_editor_menu(
         .response
         .rect
         .height();
-    if let Ok(window) = window_q.get_single() {
-        for mut camera in camera_q.iter_mut() {
-            if let Some(scaling_factor) = camera.target_scaling_factor() {
-                camera.viewport = Some(Viewport {
-                    physical_position: UVec2::new(0, (logical_height * scaling_factor) as u32),
-                    physical_size: UVec2::new(
-                        (window.physical_width()) as u32,
-                        (window.physical_height()) as u32
-                            - (logical_height * scaling_factor) as u32,
-                    ),
-                    ..default()
-                });
-            }
-        }
-    }
 }
 
 /**
@@ -658,7 +656,7 @@ fn on_exit_camera_full_window(
     window_q: Query<&Window>,
     mut camera_q: Query<&mut Camera, With<MainCamera>>,
 ) {
-    if let Ok(window) = window_q.get_single() {
+    if let Ok(window) = window_q.single() {
         for mut camera in camera_q.iter_mut() {
             camera.viewport = Some(Viewport {
                 physical_position: UVec2::new(0, 0),
@@ -681,7 +679,7 @@ enum Terrain {
 // todo: The first timne we spawn characters they don't belong to a scene :(
 fn despawn_characters(mut cmds: Commands, q: Query<Entity, With<Character>>) {
     for entity in &q {
-        cmds.entity(entity).despawn_recursive();
+        cmds.entity(entity).despawn();
     }
 }
 
@@ -693,10 +691,70 @@ fn cleanup_entities_on_enter(mut scene_spawner: ResMut<SceneSpawner>, options: R
 
 fn cleanup_entities_on_exit(mut cmds: Commands, cleanup_q: Query<Entity, With<EditorOnly>>) {
     for cleanup_entity in &cleanup_q {
-        if let Some(found_entity) = cmds.get_entity(cleanup_entity) {
-            found_entity.despawn_recursive();
+        if let Ok(mut found_entity) = cmds.get_entity(cleanup_entity) {
+            found_entity.despawn();
         }
     }
+}
+
+fn recolor_on<E>(color: Color) -> impl Fn(Trigger<E>, Query<&mut Sprite>, Res<State<InGameState>>)
+where
+    E: Clone + Reflect,
+{
+    move |ev, mut sprites, state| {
+        let state = state.get();
+        if *state != InGameState::InEditor {
+            return;
+        }
+        let Ok(mut sprite) = sprites.get_mut(ev.target()) else {
+            return;
+        };
+        sprite.color = color;
+    }
+}
+
+fn on_click_select(click: Trigger<Pointer<Click>>, mut options: ResMut<EditorOptions>) {
+    options.selected.clear();
+    options.selected.push(click.target);
+}
+
+fn on_drag_move(
+    drag: Trigger<Pointer<Drag>>,
+    mut transforms: Query<&mut Transform>,
+    navigation: Res<Navigation>,
+    q_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+) {
+    let Ok((camera, camera_transform)) = q_camera.single() else {
+        return;
+    };
+
+    if let Ok(mut transform) = transforms.get_mut(drag.target()) {
+        if let Ok(world_position) =
+            camera.viewport_to_world_2d(camera_transform, drag.pointer_location.position)
+        {
+            if navigation.is_walkable(world_position) {
+                transform.translation.x = world_position.x;
+                transform.translation.y = world_position.y;
+            }
+        }
+    }
+}
+
+fn update_character_picking(mut cmds: Commands, character_q: Query<Entity, Added<Character>>) {
+    let mut drag_move = Observer::new(on_drag_move);
+    let mut click_select = Observer::new(on_click_select);
+    let mut recolor_green = Observer::new(recolor_on::<Pointer<DragStart>>(GREEN.into()));
+    let mut recolor_white = Observer::new(recolor_on::<Pointer<DragEnd>>(Color::WHITE));
+    for entity in &character_q {
+        drag_move.watch_entity(entity);
+        click_select.watch_entity(entity);
+        recolor_green.watch_entity(entity);
+        recolor_white.watch_entity(entity);
+    }
+    cmds.spawn((drag_move, EditorOnly));
+    cmds.spawn((click_select, EditorOnly));
+    cmds.spawn((recolor_green, EditorOnly));
+    cmds.spawn((recolor_white, EditorOnly));
 }
 
 fn update_editor_ui(
@@ -710,12 +768,12 @@ fn update_editor_ui(
     if options.show_characters {
         let pawn_texture = contexts.add_image(assets.pawn.clone_weak());
         let raider_texture = contexts.add_image(assets.raider.clone_weak());
-        egui::Window::new("Characters")
+        let characters_window = egui::Window::new("Characters")
             .resizable(false)
             .movable(true)
             .collapsible(false)
             .title_bar(true)
-            .show(contexts.ctx_mut(), |ui| {
+            .show(contexts.ctx_mut().unwrap(), |ui| {
                 ui.heading("Knights");
                 egui::Grid::new("character_editor")
                     .striped(true)
@@ -749,7 +807,12 @@ fn update_editor_ui(
                         options.brush = BrushType::Character(Character::Raider);
                     }
                 };
-            });
+            })
+            .unwrap()
+            .response;
+        if options.character_window_rect != characters_window.rect {
+            options.character_window_rect = characters_window.rect;
+        }
     }
 
     if options.show_terrain {
@@ -757,12 +820,12 @@ fn update_editor_ui(
         let sand_texture = contexts.add_image(assets.sand.clone_weak());
         let steps_texture = contexts.add_image(assets.steps.clone_weak());
         let grass_texture = contexts.add_image(assets.grass.clone_weak());
-        egui::Window::new("Terrain")
+        let terrain_window = egui::Window::new("Terrain")
             .resizable(false)
             .movable(true)
             .collapsible(false)
             .title_bar(true)
-            .show(contexts.ctx_mut(), |ui| {
+            .show(contexts.ctx_mut().expect("contexts error"), |ui| {
                 egui::Grid::new("terrain_editor")
                     .striped(true)
                     .show(ui, |ui| {
@@ -837,7 +900,12 @@ fn update_editor_ui(
                     .text("Brush Size")
                     .step_by(2.0);
                 ui.add(size_slider);
-            });
+            })
+            .unwrap()
+            .response;
+        if options.terrain_window_rect != terrain_window.rect {
+            options.terrain_window_rect = terrain_window.rect;
+        }
     }
 }
 
@@ -847,6 +915,7 @@ fn save_scene(world: &mut World) {
         .deny_all_components()
         .deny_all_resources()
         .allow_resource::<TerrainWorldDefault>()
+        .allow_resource::<EditorStore>()
         .allow_component::<Character>()
         .allow_component::<EditorId>()
         .allow_component::<Transform>()
@@ -898,7 +967,10 @@ fn store_scene(world: &mut World) {
 
 fn scene_from_file_into_memory(mut options: ResMut<EditorOptions>, asset_server: Res<AssetServer>) {
     let path = options.file_path.clone().unwrap();
-    let scene_handle: Handle<DynamicScene> = asset_server.load(path.clone());
+    let scene_handle: Handle<DynamicScene> = asset_server.load(
+        path.strip_prefix("/Users/lukecollier/Projects/tinyswords/assets")
+            .unwrap(),
+    );
     options.scene = scene_handle;
 }
 
@@ -908,6 +980,16 @@ fn load_scene_from_memory(
 ) {
     let instance_id = scene_spawner.spawn_dynamic(options.scene.clone());
     options.scene_instance_id = Some(instance_id);
+}
+
+fn debug_scale_factor(windows: Query<&Window>) {
+    for window in &windows {
+        println!(
+            "Window size: {:?}, scale factor: {}",
+            window.resolution.physical_size(),
+            window.scale_factor()
+        );
+    }
 }
 
 fn update_nav_data(terrain_world: Res<TerrainWorldDefault>, mut navigation: ResMut<Navigation>) {
@@ -927,13 +1009,13 @@ impl<S: States + FreelyMutableState, L: States + FreelyMutableState> Plugin for 
         app.configure_loading_state(
             LoadingStateConfig::new(self.loading_state.clone()).load_collection::<EditorAssets>(),
         )
+        .add_plugins(EguiPlugin::default())
         .register_type::<Transform>()
         .register_type::<EditorId>()
         .register_type::<EditorStore>()
         .init_resource::<EditorOptions>()
         .init_resource::<EditorStore>()
         .add_event::<EditorCommands>()
-        .add_plugins(EguiPlugin)
         .add_systems(
             OnEnter(InGameState::Saving),
             (save_scene, change_state_to_editor).chain(),
@@ -952,16 +1034,31 @@ impl<S: States + FreelyMutableState, L: States + FreelyMutableState> Plugin for 
                 .chain(),
         )
         .add_systems(
-            Update,
+            EguiPrimaryContextPass,
             (
                 update_editor_ui,
                 update_editor_menu,
-                update_nav_data,
-                update_handle_editor_actions,
-                update_terrain_tile_picking,
-                zoom_scale,
-                update_place_character,
                 update_block_camera_move_egui,
+            )
+                .run_if(in_state(self.state.clone())),
+        )
+        // todo: This is cracked, we should have loaded all assets before entering the editor
+        // state.
+        // Seems to be a problem
+        .add_systems(
+            Update,
+            (update_handle_editor_actions, update_place_character)
+                .run_if(resource_exists::<CharacterAssets>)
+                .run_if(in_state(self.state.clone())),
+        )
+        .add_systems(
+            Update,
+            (
+                update_nav_data,
+                // update_terrain_tile_picking,
+                update_character_picking,
+                update_handle_selection,
+                zoom_scale,
                 debug_nav_pathing,
             )
                 .run_if(in_state(self.state.clone())),

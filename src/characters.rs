@@ -1,6 +1,9 @@
-use bevy::{prelude::*, sprite::Anchor, utils::HashMap};
+use bevy::{prelude::*, sprite::Anchor};
 use bevy_asset_loader::prelude::*;
-use std::{collections::VecDeque, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    time::Duration,
+};
 
 use crate::world::TILE_SIZE;
 
@@ -32,7 +35,7 @@ impl CharacterAssets {
             },
         );
         sprite_sheet.flip_x = true;
-        sprite_sheet.anchor = Anchor::Custom(Vec2::new(0.0, -0.15));
+        sprite_sheet.anchor = Anchor::Center;
         let mut animation = Animation::default();
         animation.clip_book.insert(String::from("default"), (0, 6));
         animation.clip_book.insert(String::from("walk"), (6, 11));
@@ -52,7 +55,7 @@ impl CharacterAssets {
             },
         );
         sprite.flip_x = true;
-        sprite.anchor = Anchor::Custom(Vec2::new(0.0, -0.15));
+        sprite.anchor = Anchor::Center;
         let mut animation = Animation::default();
         animation.clip_book.insert(String::from("default"), (1, 7));
         animation.clip_book.insert(String::from("walk"), (7, 13));
@@ -190,7 +193,7 @@ impl Default for Animation {
 
 #[derive(Component, Eq, PartialEq, Clone, Copy, Reflect, Debug)]
 #[reflect(Component)]
-#[require(Transform, Stats, Goal)]
+#[require(Transform, Stats, Goal, Pickable)]
 pub enum Character {
     Pawn,
     Raider,

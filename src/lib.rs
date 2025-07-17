@@ -23,8 +23,8 @@ pub enum AppState {
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Default, SubStates)]
 #[source(AppState = AppState::InGame)]
 pub enum InGameState {
-    #[default]
     Running,
+    #[default]
     InEditor,
     Paused,
     Saving,

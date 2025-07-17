@@ -9,7 +9,7 @@ struct DiagnosticsOnly;
 
 impl<S: States> Plugin for DiagnosticsPlugin<'static, S> {
     fn build(&self, app: &mut App) {
-        app.add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
+        app.add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::new(100))
             .add_systems(OnEnter(self.state.clone()), setup_diagnostics)
             .add_systems(OnExit(self.state.clone()), teardown_diagnostics);
     }
@@ -26,7 +26,7 @@ fn teardown_diagnostics(
     diagnostics_only_q: Query<Entity, With<DiagnosticsOnly>>,
 ) {
     for entity in &diagnostics_only_q {
-        cmds.entity(entity).despawn_recursive();
+        cmds.entity(entity).despawn();
     }
 }
 
