@@ -3,13 +3,21 @@ use std::{fs::File, path::PathBuf};
 use crate::{
     camera::MainCamera,
     characters::{Character, CharacterAssets},
-    nav::Navigation,
+    flowfield::{DefaultSizeFlowField, FlowFields},
     terrain::{TerrainTile, TerrainWorldDefault},
     InGameState,
 };
 use bevy::{
-    color::palettes::css::GREEN, prelude::*, render::camera::Viewport, scene::InstanceId,
-    state::state::FreelyMutableState, tasks::IoTaskPool, winit::WinitWindows,
+    color::palettes::{
+        css::GREEN,
+        tailwind::{GREEN_200, RED_200},
+    },
+    prelude::*,
+    render::camera::Viewport,
+    scene::InstanceId,
+    state::state::FreelyMutableState,
+    tasks::IoTaskPool,
+    winit::WinitWindows,
 };
 use bevy_asset_loader::prelude::*;
 use bevy_egui::{
@@ -401,7 +409,7 @@ fn update_place_terrain(
         };
 
         if mouse_button.pressed(MouseButton::Left) {
-            let Some(terrain_pos) = terrain_world.coords_to_world(&world_cursor_pos) else {
+            let Some(terrain_pos) = terrain_world.world_to_terrain(&world_cursor_pos) else {
                 return;
             };
             let Some(TerrainTile { terrain, .. }) = terrain_world.get_tile_from(&terrain_pos)
@@ -442,7 +450,7 @@ fn update_place_character(
     mouse_button: Res<ButtonInput<MouseButton>>,
     options: ResMut<EditorOptions>,
     mut store: ResMut<EditorStore>,
-    pathing: Res<Navigation>,
+    pathing: Res<FlowFields>,
     character_assets: Res<CharacterAssets>,
     mut ev: EventWriter<EditorCommand>,
 ) {
@@ -481,7 +489,7 @@ fn update_place_character(
             Ok((_, _, mut transform, mut sprite)) => {
                 *transform =
                     Transform::from_translation((world_cursor_pos).extend(transform.translation.z));
-                if pathing.is_walkable(transform.translation.truncate()) {
+                if pathing.is_walkable(&transform.translation.truncate()) {
                     sprite.color = Color::linear_rgba(1., 1., 1., 0.5);
                 } else {
                     sprite.color = Color::linear_rgba(1., 0., 0., 0.5);
@@ -512,7 +520,7 @@ fn update_place_character(
         };
         if mouse_button.just_pressed(MouseButton::Left) {
             for (_, template, transform, _) in &mut character_shadow_q {
-                if pathing.is_walkable(transform.translation.truncate()) {
+                if pathing.is_walkable(&transform.translation.truncate()) {
                     let pos = (world_cursor_pos).extend(0.);
                     store.clear_redo();
                     ev.write(EditorCommand::can_undo(EditorActions::CreateCharacter {
@@ -552,10 +560,6 @@ fn on_exit_make_tiles_white(mut tiles_q: Query<&mut Sprite, With<TerrainTile>>) 
             sprite.color = Color::WHITE;
         }
     }
-}
-
-fn debug_nav_pathing(gizmos: Gizmos, navigation: Res<Navigation>) {
-    navigation.debug(gizmos);
 }
 
 // todo: For redo and undo we basicaly need a stack (vec) of entities, get's more difficult with
@@ -822,33 +826,11 @@ fn on_click_select(click: Trigger<Pointer<Click>>, mut options: ResMut<EditorOpt
     options.selected.push(click.target);
 }
 
-// fn on_drag_move(
-//     drag: Trigger<Pointer<Drag>>,
-//     mut transforms: Query<&mut Transform>,
-//     navigation: Res<Navigation>,
-//     q_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-// ) {
-//     let Ok((camera, camera_transform)) = q_camera.single() else {
-//         return;
-//     };
-
-//     if let Ok(mut transform) = transforms.get_mut(drag.target()) {
-//         if let Ok(world_position) =
-//             camera.viewport_to_world_2d(camera_transform, drag.pointer_location.position)
-//         {
-//             if navigation.is_walkable(world_position) {
-//                 transform.translation.x = world_position.x;
-//                 transform.translation.y = world_position.y;
-//             }
-//         }
-//     }
-// }
-
 // todo: Incredibly frustratingly this gets fired multiple times
 fn drag_move_character_end(
     drag: Trigger<Pointer<DragEnd>>,
     mut transforms: Query<(&mut Transform, &EditorId)>,
-    navigation: Res<Navigation>,
+    pathing: Res<FlowFields>,
     q_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut store: ResMut<EditorStore>,
     mut ev_actions: EventWriter<EditorCommand>,
@@ -867,7 +849,7 @@ fn drag_move_character_end(
     else {
         return;
     };
-    if navigation.is_walkable(world_position) {
+    if pathing.is_walkable(&world_position) {
         let command = EditorCommand::can_undo(EditorActions::MoveCharacter {
             from: start_transform.translation,
             to: world_position.extend(0.),
@@ -1120,20 +1102,38 @@ fn load_scene_from_memory(
     options.scene_instance_id = Some(instance_id);
 }
 
-fn debug_scale_factor(windows: Query<&Window>) {
-    for window in &windows {
-        println!(
-            "Window size: {:?}, scale factor: {}",
-            window.resolution.physical_size(),
-            window.scale_factor()
+fn debug_nav_data(terrain_world: Res<TerrainWorldDefault>, mut gizmos: Gizmos) {
+    for water_area in terrain_world.water() {
+        gizmos.rect_2d(
+            Isometry2d::new(water_area.min + water_area.half_size(), Rot2::IDENTITY),
+            water_area.size(),
+            RED_200,
+        );
+    }
+
+    for area in terrain_world.land() {
+        gizmos.rect_2d(
+            Isometry2d::new(area.min + area.half_size(), Rot2::IDENTITY),
+            area.size(),
+            GREEN_200,
         );
     }
 }
 
-fn update_nav_data(terrain_world: Res<TerrainWorldDefault>, mut navigation: ResMut<Navigation>) {
+fn update_nav_data(terrain_world: Res<TerrainWorldDefault>, mut pathing: ResMut<FlowFields>) {
     if terrain_world.is_changed() {
-        navigation.rebuild_from_terrain(&terrain_world);
-        // do something
+        // todo: we need to use the rect to figure out all the tile positions in the flowfield to
+        // block.
+        // todo: Need a more efficient way to get water and land
+        for area in terrain_world.water() {
+            let grid_pos = DefaultSizeFlowField::world_to_grid(&area.center());
+            pathing.set_impassable(grid_pos);
+        }
+
+        for area in terrain_world.land() {
+            let grid_pos = DefaultSizeFlowField::world_to_grid(&area.center());
+            pathing.set_passable(&grid_pos);
+        }
     }
 }
 
@@ -1197,11 +1197,10 @@ impl<S: States + FreelyMutableState, L: States + FreelyMutableState> Plugin for 
             Update,
             (
                 update_nav_data,
-                // update_terrain_tile_picking,
+                debug_nav_data,
                 update_character_picking,
                 update_handle_selection,
                 zoom_scale,
-                debug_nav_pathing,
             )
                 .run_if(in_state(self.state.clone())),
         )

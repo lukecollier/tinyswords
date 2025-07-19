@@ -3,8 +3,8 @@ use bevy_asset_loader::prelude::*;
 
 use crate::{
     camera::MainCamera,
-    characters::{Character, Goal, Target},
-    nav::Navigation,
+    characters::{Character, CharacterActions},
+    flowfield::{FlowFieldActor, FlowFieldDebugging},
     InGameState,
 };
 
@@ -29,8 +29,9 @@ impl<
             Update,
             (
                 update_return_to_editor,
-                update_character_orders,
+                update_character_orders_flowfield,
                 update_selection,
+                update_character_state,
                 debug_character_position_center,
             )
                 .run_if(in_state(self.state.clone())),
@@ -66,6 +67,7 @@ fn setup_reset_camera_bounds(mut camera_q: Query<&mut Camera, With<MainCamera>>)
     }
 }
 
+//todo: use bevy picking
 fn update_selection(
     mut cmds: Commands,
     window_q: Query<&Window>,
@@ -133,14 +135,36 @@ fn debug_character_position_center(
     }
 }
 
-fn update_character_orders(
+fn update_character_state(
+    mut cmds: Commands,
+    mut state_q: Query<(Entity, &FlowFieldActor, &mut CharacterActions, &Transform)>,
+) {
+    for (entity, actor, mut state, transform) in state_q.iter_mut() {
+        match *state {
+            CharacterActions::Standing => (),
+            CharacterActions::Moving { ref mut direction } => {
+                let at_destination = actor
+                    .target
+                    .abs_diff_eq(transform.translation.truncate(), 0.5);
+                if at_destination {
+                    *state = CharacterActions::Standing;
+                    cmds.entity(entity).remove::<FlowFieldActor>();
+                } else {
+                    *direction = actor.steering;
+                }
+            }
+            // if we're attacking we stop moving?
+            CharacterActions::Attacking { direction, entity } => (),
+        }
+    }
+}
+
+fn update_character_orders_flowfield(
+    mut cmds: Commands,
     window_q: Query<&Window>,
     camera_q: Query<(&Camera, &mut GlobalTransform), With<MainCamera>>,
-    mut goal_q: Query<(&mut Goal, &Transform), With<CharacterSelected>>,
-    navigation: Res<Navigation>,
+    selected_q: Query<Entity, With<CharacterSelected>>,
     mouse_button: Res<ButtonInput<MouseButton>>,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut gizmos: Gizmos,
 ) {
     let Ok(window) = window_q.single() else {
         return;
@@ -152,57 +176,14 @@ fn update_character_orders(
         let Ok(world_cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else {
             return;
         };
-        for (mut goal, transform) in goal_q.iter_mut() {
-            if mouse_button.just_pressed(MouseButton::Right)
-                && keyboard_input.pressed(KeyCode::ShiftLeft)
-            {
-                if let Some(Target::Position(pos)) = goal.path.back() {
-                    let path: Vec<_> = navigation
-                        .path_between_3d(pos.extend(0.0), world_cursor_pos.extend(0.0))
-                        .into_iter()
-                        .map(|pos| Target::Position(pos.truncate()))
-                        .collect();
-                    goal.extend(path);
-                } else {
-                    let path: Vec<_> = navigation
-                        .path_between_3d(
-                            transform.translation.truncate().extend(0.0),
-                            world_cursor_pos.extend(0.0),
-                        )
-                        .into_iter()
-                        .map(|pos| Target::Position(pos.truncate()))
-                        .collect();
-                    goal.extend(path);
-                }
-            } else if mouse_button.just_pressed(MouseButton::Right) {
-                goal.clear();
-                let path: Vec<_> = navigation
-                    .path_between_3d(
-                        transform.translation.truncate().extend(0.0),
-                        world_cursor_pos.extend(0.0),
-                    )
-                    .into_iter()
-                    .map(|pos| Target::Position(pos.truncate()))
-                    .collect();
-                goal.extend(path);
+        if mouse_button.just_pressed(MouseButton::Right) {
+            for entity in selected_q {
+                cmds.entity(entity).insert((
+                    FlowFieldDebugging,
+                    FlowFieldActor::new(world_cursor_pos),
+                    CharacterActions::moving(),
+                ));
             }
-        }
-    }
-    if keyboard_input.pressed(KeyCode::ShiftLeft) {
-        for (goal, mover) in goal_q.iter() {
-            if let Target::Position(target_pos) = goal.target {
-                gizmos.line_2d(mover.translation.truncate(), target_pos, Color::WHITE);
-                if let Some(Target::Position(first_pos)) = goal.path.front() {
-                    gizmos.line_2d(target_pos, *first_pos, Color::WHITE);
-                }
-            }
-            gizmos.linestrip_2d(
-                goal.path.iter().filter_map(|target| match target {
-                    Target::Position(pos) => Some(pos.clone()),
-                    _ => None,
-                }),
-                Color::WHITE,
-            );
         }
     }
 }

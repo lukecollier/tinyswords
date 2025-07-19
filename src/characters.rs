@@ -95,7 +95,8 @@ impl<S: States + bevy::state::state::FreelyMutableState> Plugin for CharacterPlu
             .add_systems(
                 Update,
                 (
-                    update_character_movement,
+                    // update_character_movement,
+                    update_handle_actions,
                     update_animated_characters,
                     on_added_insert_visuals,
                 )
@@ -127,49 +128,41 @@ impl Default for Stats {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum Target {
-    Entity(Entity),
-    // todo: Should use Vec3
-    Position(Vec2),
-    None,
+// simple state machine for our characters
+#[derive(Component, Debug)]
+pub enum CharacterActions {
+    Standing,
+    Moving { direction: Vec2 },
+    // the feeling here is when the unit attacks we get it's attack range
+    // and use that to decide when to switch to attacking
+    // i.e if we're outside of attacking range we change the characters state to moving
+    // and vice versa, so when we're in moving state and we enter attack range we switch to
+    // attacking
+    Attacking { direction: Vec2, entity: Entity },
 }
 
-impl Default for Target {
-    fn default() -> Self {
-        Target::None
+impl CharacterActions {
+    pub fn standing() -> Self {
+        Self::Standing
     }
-}
 
-#[derive(Component, Debug, Clone)]
-pub struct Goal {
-    pub target: Target,
-    pub path: VecDeque<Target>,
-}
-
-impl Default for Goal {
-    fn default() -> Self {
-        Self {
-            target: Target::None,
-            path: VecDeque::new(),
+    pub fn moving() -> Self {
+        Self::Moving {
+            direction: Vec2::ZERO,
         }
     }
 }
 
-impl Goal {
-    pub fn add_target(&mut self, target: Target) {
-        self.path.push_back(target);
+impl Default for CharacterActions {
+    fn default() -> Self {
+        CharacterActions::Standing
     }
+}
 
-    pub fn extend(&mut self, path: Vec<Target>) {
-        for target in path {
-            self.path.push_back(target);
-        }
-    }
-
-    pub fn clear(&mut self) {
-        self.path.clear();
-    }
+#[derive(Component, Debug, Clone, Default)]
+pub struct Moving {
+    pub direction: Vec2,
+    pub pixels_per_second: f32,
 }
 
 #[derive(Component, Clone)]
@@ -193,7 +186,7 @@ impl Default for Animation {
 
 #[derive(Component, Eq, PartialEq, Clone, Copy, Reflect, Debug)]
 #[reflect(Component)]
-#[require(Transform, Stats, Goal, Pickable)]
+#[require(Transform, Stats, Pickable, CharacterActions)]
 pub enum Character {
     Pawn,
     Raider,
@@ -228,46 +221,32 @@ fn setup_characters(cmds: Commands, assets: Res<CharacterAssets>) {
     // todo: I guess load from a map? Or something?
 }
 
-fn update_character_movement(
-    mut goal_q: Query<(
+fn update_handle_actions(
+    time: Res<Time>,
+    mut state_q: Query<(
+        &CharacterActions,
         &Stats,
         &mut Transform,
-        &mut Goal,
-        &mut Sprite,
         &mut Animation,
+        &mut Sprite,
     )>,
-    time: Res<Time>,
 ) {
-    for (stats, mut transform, mut goal, mut sprite, mut animation) in goal_q.iter_mut() {
-        match goal.target {
-            Target::Entity(_) => {}
-            Target::Position(position) => {
-                animation.current_animation = String::from("walk");
+    for (state, stats, mut transform, mut animation, mut sprite) in state_q.iter_mut() {
+        match state {
+            CharacterActions::Standing => animation.current_animation = "default".to_string(),
+            CharacterActions::Moving { direction } => {
+                animation.current_animation = "walk".to_string();
                 let magnitude = time.delta().as_secs_f32() * stats.speed_in_pixels_per_second;
-                // todo: Change the z depending on the height of the character
-                let direction = position.extend(transform.translation.z) - transform.translation;
-                *transform = Transform::from_translation(
-                    transform.translation + direction.normalize() * magnitude,
-                );
-                // Make the sprite face the direction it's moving
-                if position.x < transform.translation.x {
+                let move_by = direction * magnitude;
+                transform.translation += move_by.extend(0.);
+                if direction.x < 0. {
                     sprite.flip_x = true;
                 } else {
                     sprite.flip_x = false;
                 }
-
-                if position.distance(transform.translation.truncate()) < magnitude {
-                    goal.target = Target::None;
-                }
             }
-            Target::None => {
-                if let Some(next_target) = goal.path.pop_front() {
-                    goal.target = next_target;
-                } else {
-                    animation.current_animation = String::from("default");
-                }
-            }
-        };
+            CharacterActions::Attacking { direction, entity } => todo!(),
+        }
     }
 }
 

@@ -110,7 +110,7 @@ impl<const N: usize> TerrainWorld<N> {
         list
     }
 
-    pub fn coordinates(&self) -> Vec<Vec2> {
+    pub(crate) fn coordinates(&self) -> Vec<Vec2> {
         let mut list = Vec::with_capacity(N * N);
         for x in 0..self.map.len() {
             for y in 0..self.map[x].len() {
@@ -123,14 +123,76 @@ impl<const N: usize> TerrainWorld<N> {
         list
     }
 
-    pub fn coords_to_world(&self, coords: &Vec2) -> Option<UVec2> {
-        let world_coord = coords / TILE_SIZE_F32;
+    pub(crate) fn land(&self) -> Vec<Rect> {
+        let mut list = Vec::with_capacity(N * N);
+        for x in 0..self.map.len() {
+            for y in 0..self.map[x].len() {
+                let byte = self.map[x][y];
+                if !Self::is_water(&byte) {
+                    let terrain_pos = UVec2::new(x as u32, y as u32);
+                    let world_pos = self
+                        .terrain_to_world(&terrain_pos)
+                        .expect("oops, we found a non existing coord somehow");
+                    let area = Rect::new(
+                        world_pos.x,
+                        world_pos.y,
+                        world_pos.x + TILE_SIZE_F32,
+                        world_pos.y + TILE_SIZE_F32,
+                    );
+                    list.push(area);
+                }
+            }
+        }
+        list
+    }
+
+    // return all water
+    // todo: This should return rects of water tiles
+    // we can then use that data to map onto the flowfields blocked struct
+    pub(crate) fn water(&self) -> Vec<Rect> {
+        let mut list = Vec::with_capacity(N * N);
+        for x in 0..self.map.len() {
+            for y in 0..self.map[x].len() {
+                let byte = self.map[x][y];
+                if Self::is_water(&byte) {
+                    let terrain_pos = UVec2::new(x as u32, y as u32);
+                    let world_pos = self
+                        .terrain_to_world(&terrain_pos)
+                        .expect("oops, we found a non existing coord somehow");
+                    let area = Rect::new(
+                        world_pos.x,
+                        world_pos.y,
+                        world_pos.x + TILE_SIZE_F32,
+                        world_pos.y + TILE_SIZE_F32,
+                    );
+                    list.push(area);
+                }
+            }
+        }
+        list
+    }
+
+    pub fn terrain_to_world(&self, pos: &UVec2) -> Option<Vec2> {
+        let world_coord = pos.as_vec2() * TILE_SIZE_F32;
         if world_coord.x >= 0.
             && world_coord.y >= 0.
-            && (world_coord.x.floor() as usize) < WORLD_SIZE * N
-            && (world_coord.y.floor() as usize) < WORLD_SIZE * N
+            && (world_coord.x) < WORLD_SIZE as f32 * N as f32 * TILE_SIZE_F32
+            && (world_coord.y) < WORLD_SIZE as f32 * N as f32 * TILE_SIZE_F32
         {
-            Some(world_coord.floor().as_uvec2())
+            Some(world_coord)
+        } else {
+            None
+        }
+    }
+
+    pub fn world_to_terrain(&self, pos: &Vec2) -> Option<UVec2> {
+        let terrain_pos = pos / TILE_SIZE_F32;
+        if terrain_pos.x >= 0.
+            && terrain_pos.y >= 0.
+            && (terrain_pos.x.floor() as usize) < WORLD_SIZE * N
+            && (terrain_pos.y.floor() as usize) < WORLD_SIZE * N
+        {
+            Some(terrain_pos.floor().as_uvec2())
         } else {
             None
         }
@@ -170,6 +232,10 @@ impl<const N: usize> TerrainWorld<N> {
     // We only want to unpack bytes when loading them into our ecs world
     fn is_water(byte: &u8) -> bool {
         byte >= &Self::WATER && byte <= &(Self::WATER + 15)
+    }
+
+    fn is_land(byte: &u8) -> bool {
+        !Self::is_water(byte)
     }
 
     fn is_sand(byte: &u8) -> bool {
@@ -366,7 +432,7 @@ fn update_ecs_when_world_changes(
     if terrain.is_changed() {
         // despawn tiles that don't exist
         for (entity, _, transform) in &tile_q {
-            let Some(pos) = terrain.coords_to_world(&transform.translation.truncate()) else {
+            let Some(pos) = terrain.world_to_terrain(&transform.translation.truncate()) else {
                 continue;
             };
             if let Some(candidate_tile) = terrain.get_tile_from(&pos) {
@@ -462,7 +528,7 @@ fn update_ecs_when_world_changes(
         }
 
         for (entity, mut terrain_tile, transform) in tile_q.iter_mut() {
-            let Some(pos) = terrain.coords_to_world(&transform.translation.truncate()) else {
+            let Some(pos) = terrain.world_to_terrain(&transform.translation.truncate()) else {
                 continue;
             };
             let Ok(ref mut sprite) = sprite_q.get_mut(entity) else {

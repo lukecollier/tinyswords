@@ -8,7 +8,6 @@ pub mod diagnostics;
 pub mod editor;
 pub mod flowfield;
 pub mod game;
-pub mod nav;
 pub mod terrain;
 pub mod ui;
 pub mod world;

@@ -8,8 +8,8 @@ use tinyswords::characters::CharacterPlugin;
 #[cfg(debug_assertions)]
 use tinyswords::diagnostics::DiagnosticsPlugin;
 use tinyswords::editor::EditorPlugin;
+use tinyswords::flowfield::FlowFieldPlugin;
 use tinyswords::game::GamePlugin;
-use tinyswords::nav::NavPlugin;
 use tinyswords::ui::UiPlugin;
 use tinyswords::AppState;
 use tinyswords::{terrain::*, InGameState};
@@ -57,10 +57,7 @@ fn main() {
         AppState::InGame,
         AppState::AssetLoading,
     ))
-    .add_plugins(NavPlugin::run_on_state(
-        AppState::InGame,
-        AppState::AssetLoading,
-    ))
+    .add_plugins(FlowFieldPlugin::run_on_state(AppState::InGame))
     .add_plugins(BuildingPlugin::run_on_state(
         AppState::InGame,
         AppState::AssetLoading,
